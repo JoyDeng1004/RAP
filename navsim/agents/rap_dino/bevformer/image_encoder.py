@@ -1,13 +1,55 @@
+import os
+
 import torch
 import numpy as np
 import torch.nn as nn
 from mmdet.models.necks.fpn import FPN
-from transformers import AutoImageProcessor, AutoModel,pipeline
 from torchvision import transforms
 from .grid_mask import GridMask, PatchGridMask
 import timm
 import torch.nn.functional as F
 
+# transformers>=4.56 calls the public pytree API added after torch 2.1.
+# The RAP environment currently uses torch 2.1, where the same implementation
+# is still exposed as a private helper.
+if (
+    not hasattr(torch.utils._pytree, "register_pytree_node")
+    and hasattr(torch.utils._pytree, "_register_pytree_node")
+):
+    def _register_pytree_node_compat(typ, flatten_fn, unflatten_fn, **kwargs):
+        kwargs.pop("serialized_type_name", None)
+        return torch.utils._pytree._register_pytree_node(
+            typ, flatten_fn, unflatten_fn, **kwargs
+        )
+
+    torch.utils._pytree.register_pytree_node = _register_pytree_node_compat
+
+from transformers import AutoModel
+from transformers.models.dinov3_vit.configuration_dinov3_vit import DINOv3ViTConfig
+from transformers.models.dinov3_vit.modeling_dinov3_vit import DINOv3ViTModel
+
+
+_DINOV3_BACKBONE_ID = "facebook/dinov3-vith16plus-pretrain-lvd1689m"
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _build_dinov3_backbone() -> nn.Module:
+    if _env_flag("RAP_DINO_OFFLINE_INIT"):
+        backbone_config = DINOv3ViTConfig(
+            hidden_size=1280,
+            intermediate_size=5120,
+            num_hidden_layers=32,
+            num_attention_heads=20,
+            num_register_tokens=4,
+            use_gated_mlp=True,
+        )
+        return DINOv3ViTModel(backbone_config)
+
+    backbone_id = os.environ.get("RAP_DINO_BACKBONE", _DINOV3_BACKBONE_ID)
+    return AutoModel.from_pretrained(backbone_id)
 
 
 class ImgEncoder(nn.Module):
@@ -27,7 +69,7 @@ class ImgEncoder(nn.Module):
         self.grid_mask = GridMask( True, True, rotate=1, offset=False, ratio=0.5, mode=1, prob=0.7)
         self.use_grid_mask = True
 
-        self.img_backbone = AutoModel.from_pretrained("facebook/dinov3-vith16plus-pretrain-lvd1689m")
+        self.img_backbone = _build_dinov3_backbone()
        # self.transform = make_transform(512)
                                    
         # original_mean = torch.tensor([[123.675, 116.28, 103.53]]).view(1,3,1,1)
