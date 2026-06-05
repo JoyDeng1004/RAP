@@ -101,7 +101,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--interval-length", type=float, default=0.5)
     parser.add_argument("--sim-interval-length", type=float, default=0.1)
     parser.add_argument("--execute-interval-length", type=float, default=0.5)
-    parser.add_argument("--rollout-steps", type=int, default=10)
+    parser.add_argument("--rollout-steps", type=int, default=8)
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument(
         "--use-rendered",
@@ -290,11 +290,14 @@ def _reference_segment_local(
     current_pose: np.ndarray,
     start_index: int,
     num_poses: int,
+    allow_partial: bool = False,
 ) -> Optional[np.ndarray]:
     end_index = start_index + num_poses
-    if end_index >= len(reference_global):
+    if start_index + 1 >= len(reference_global):
         return None
-    future = reference_global[start_index + 1 : end_index + 1]
+    if end_index >= len(reference_global) and not allow_partial:
+        return None
+    future = reference_global[start_index + 1 : min(end_index + 1, len(reference_global))]
     return convert_absolute_to_relative_se2_array(
         StateSE2(*current_pose),
         future.astype(np.float64),
@@ -376,6 +379,25 @@ def _pose_error(pred_pose: np.ndarray, ref_pose: np.ndarray) -> Dict[str, float]
     }
 
 
+def _empty_metrics() -> Dict[str, Optional[float]]:
+    return {
+        "ade": None,
+        "fde": None,
+        "ahe": None,
+        "fhe": None,
+        "cv_ade": None,
+        "cv_fde": None,
+    }
+
+
+def _empty_pose_errors() -> Dict[str, Optional[float]]:
+    return {
+        "executed_xy_error": None,
+        "executed_heading_error": None,
+        "executed_lateral_like_error": None,
+    }
+
+
 def _summarize(rows: List[Dict[str, object]], failures: List[Tuple[str, str]]) -> Dict[str, object]:
     numeric_keys = [
         "step_ade",
@@ -435,6 +457,16 @@ def _global_pose_to_local(global_pose: np.ndarray, current_pose: np.ndarray) -> 
     )[0]
 
 
+def _format_optional_float(value: object, fmt: str = ".3f") -> str:
+    if value is None:
+        return "n/a"
+    try:
+        value_float = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    return format(value_float, fmt) if np.isfinite(value_float) else "n/a"
+
+
 def _build_map_api(map_location: str, map_api_cache: Dict[str, object]) -> Optional[object]:
     map_name = "us-nv-las-vegas-strip" if map_location == "las_vegas" else map_location
     if map_name in map_api_cache:
@@ -475,17 +507,23 @@ def _plot_rollout_step_bev(
     add_oriented_box_to_bev_ax(ax, ego_box, AGENT_CONFIG[TrackedObjectType.EGO], add_heading=True)
 
     pred_local = np.asarray(step_data["pred_local"], dtype=np.float32)
-    target_local = np.asarray(step_data["target_local"], dtype=np.float32)
     add_trajectory_to_bev_ax(
         ax,
         Trajectory(pred_local, plan_sampling),
         _trajectory_config("agent", ELLIS_5[0]),
     )
-    add_trajectory_to_bev_ax(
-        ax,
-        Trajectory(target_local, plan_sampling),
-        _trajectory_config("human", NEW_TAB_10[4]),
-    )
+    target_local = step_data.get("target_local")
+    if target_local is not None:
+        target_local = np.asarray(target_local, dtype=np.float32)
+        target_sampling = TrajectorySampling(
+            num_poses=len(target_local),
+            interval_length=plan_sampling.interval_length,
+        )
+        add_trajectory_to_bev_ax(
+            ax,
+            Trajectory(target_local, target_sampling),
+            _trajectory_config("human", NEW_TAB_10[4]),
+        )
 
     executed_local = _global_pose_to_local(np.asarray(step_data["executed_pose"], dtype=np.float64), current_pose)
     executed_box = CarFootprint.build_from_rear_axle(
@@ -498,7 +536,8 @@ def _plot_rollout_step_bev(
 
     ax.set_title(
         f"{step_data['sample_token']} | step {step_data['rollout_step']} | "
-        f"score={float(step_data['top_score']):.3f} | xy_err={float(step_data['executed_xy_error']):.3f}",
+        f"score={float(step_data['top_score']):.3f} | "
+        f"xy_err={_format_optional_float(step_data.get('executed_xy_error'))}",
         fontsize=8,
     )
     configure_bev_ax(ax)
@@ -548,29 +587,35 @@ def _save_global_summary(
 
     current = np.asarray([step["current_pose"] for step in step_data_list], dtype=np.float64)
     executed = np.asarray([step["executed_pose"] for step in step_data_list], dtype=np.float64)
-    reference = np.asarray([step["reference_pose"] for step in step_data_list], dtype=np.float64)
+    reference = np.asarray(
+        [step["reference_pose"] for step in step_data_list if step.get("reference_pose") is not None],
+        dtype=np.float64,
+    )
 
     for idx, step in enumerate(step_data_list):
         current_pose = np.asarray(step["current_pose"], dtype=np.float64)
         pred_global = _local_trajectory_to_global(np.asarray(step["pred_local"], dtype=np.float64), current_pose)
-        target_global = _local_trajectory_to_global(np.asarray(step["target_local"], dtype=np.float64), current_pose)
         pred_label = "pred rollout trajectories" if idx == 0 else None
-        target_label = "target trajectories" if idx == 0 else None
         ax.plot(pred_global[:, 0], pred_global[:, 1], color=ELLIS_5[0], alpha=0.28, linewidth=1.2, label=pred_label)
-        ax.plot(
-            target_global[:, 0],
-            target_global[:, 1],
-            color=NEW_TAB_10[4],
-            alpha=0.28,
-            linewidth=1.2,
-            linestyle="--",
-            label=target_label,
-        )
+        target_local = step.get("target_local")
+        if target_local is not None:
+            target_global = _local_trajectory_to_global(np.asarray(target_local, dtype=np.float64), current_pose)
+            target_label = "target trajectories" if idx == 0 else None
+            ax.plot(
+                target_global[:, 0],
+                target_global[:, 1],
+                color=NEW_TAB_10[4],
+                alpha=0.28,
+                linewidth=1.2,
+                linestyle="--",
+                label=target_label,
+            )
         ax.text(current_pose[0], current_pose[1], str(step["rollout_step"]), fontsize=7, color="#333333")
 
     ax.plot(current[:, 0], current[:, 1], color=NEW_TAB_10[0], marker="o", linewidth=2.0, label="current path")
     ax.plot(executed[:, 0], executed[:, 1], color=NEW_TAB_10[2], marker="o", linewidth=2.0, label="executed path")
-    ax.plot(reference[:, 0], reference[:, 1], color=NEW_TAB_10[4], marker="o", linewidth=2.0, label="reference path")
+    if len(reference):
+        ax.plot(reference[:, 0], reference[:, 1], color=NEW_TAB_10[4], marker="o", linewidth=2.0, label="reference path")
     ax.scatter(current[0, 0], current[0, 1], color="#111111", marker="s", s=60, label="start", zorder=5)
     ax.scatter(executed[-1, 0], executed[-1, 1], color="#111111", marker="*", s=100, label="end", zorder=5)
     ax.set_title(f"{step_data_list[0]['sample_token']} global rollout summary", fontsize=10)
@@ -608,7 +653,10 @@ def _render_sample_visualizations(
         gif_duration_ms=gif_duration_ms,
     )
 
-    xy_errors = np.asarray([step["executed_xy_error"] for step in step_data_list], dtype=np.float64)
+    xy_errors = np.asarray(
+        [step["executed_xy_error"] for step in step_data_list if step.get("executed_xy_error") is not None],
+        dtype=np.float64,
+    )
     return {
         "sample_token": sample_token,
         "source_log_name": step_data_list[0]["source_log_name"],
@@ -798,9 +846,8 @@ def main() -> None:
                         current_pose,
                         ref_start,
                         args.num_poses,
+                        allow_partial=True,
                     )
-                    if target_local is None:
-                        break
 
                     pred_local, top_score = _run_rap(
                         model,
@@ -812,10 +859,13 @@ def main() -> None:
                         args.use_rendered,
                         args.num_poses,
                     )
-                    cv_local = np.zeros_like(target_local, dtype=np.float32)
-                    current_velocity = np.asarray(history_frames[-1]["ego_dynamic_state"][:2], dtype=np.float32)
-                    steps = np.arange(1, args.num_poses + 1, dtype=np.float32)[:, None]
-                    cv_local[:, :2] = steps * args.interval_length * current_velocity[None]
+                    metrics = _empty_metrics()
+                    if target_local is not None and len(target_local) == args.num_poses:
+                        cv_local = np.zeros_like(target_local, dtype=np.float32)
+                        current_velocity = np.asarray(history_frames[-1]["ego_dynamic_state"][:2], dtype=np.float32)
+                        steps = np.arange(1, args.num_poses + 1, dtype=np.float32)[:, None]
+                        cv_local[:, :2] = steps * args.interval_length * current_velocity[None]
+                        metrics = _metrics(pred_local, target_local, cv_local)
 
                     proposal_states = _local_prediction_to_state_array(
                         pred_local,
@@ -831,11 +881,16 @@ def main() -> None:
                     executed_pose = _state_array_pose(executed_state_array)
 
                     ref_execute_index = ref_start + int(round(args.execute_interval_length / args.interval_length))
-                    if ref_execute_index >= len(reference_global):
-                        break
-                    reference_pose = reference_global[ref_execute_index]
-                    pose_errors = _pose_error(executed_pose, reference_pose)
-                    metrics = _metrics(pred_local, target_local, cv_local)
+                    reference_pose = (
+                        reference_global[ref_execute_index]
+                        if ref_execute_index < len(reference_global)
+                        else None
+                    )
+                    pose_errors = (
+                        _pose_error(executed_pose, reference_pose)
+                        if reference_pose is not None
+                        else _empty_pose_errors()
+                    )
 
                     row = {
                         "sample_token": sample_token,
@@ -857,12 +912,16 @@ def main() -> None:
                         "executed_x": float(executed_pose[0]),
                         "executed_y": float(executed_pose[1]),
                         "executed_heading": float(executed_pose[2]),
-                        "reference_x": float(reference_pose[0]),
-                        "reference_y": float(reference_pose[1]),
-                        "reference_heading": float(reference_pose[2]),
+                        "reference_x": float(reference_pose[0]) if reference_pose is not None else None,
+                        "reference_y": float(reference_pose[1]) if reference_pose is not None else None,
+                        "reference_heading": float(reference_pose[2]) if reference_pose is not None else None,
                         **pose_errors,
                         "pred_trajectory": _to_jsonable_trajectory(pred_local),
-                        "target_trajectory": _to_jsonable_trajectory(target_local),
+                        "target_trajectory": (
+                            _to_jsonable_trajectory(target_local)
+                            if target_local is not None
+                            else None
+                        ),
                     }
                     rows.append(row)
                     writer.writerow(row)
@@ -878,9 +937,17 @@ def main() -> None:
                                 "current_pose": current_pose.copy(),
                                 "current_timestamp": current_timestamp,
                                 "executed_pose": executed_pose.astype(np.float64).copy(),
-                                "reference_pose": reference_pose.astype(np.float64).copy(),
+                                "reference_pose": (
+                                    reference_pose.astype(np.float64).copy()
+                                    if reference_pose is not None
+                                    else None
+                                ),
                                 "pred_local": pred_local.astype(np.float32).copy(),
-                                "target_local": target_local.astype(np.float32).copy(),
+                                "target_local": (
+                                    target_local.astype(np.float32).copy()
+                                    if target_local is not None
+                                    else None
+                                ),
                                 "top_score": top_score,
                                 "executed_xy_error": pose_errors["executed_xy_error"],
                                 "executed_heading_error": pose_errors["executed_heading_error"],
@@ -939,6 +1006,13 @@ def main() -> None:
             "rollout_steps": args.rollout_steps,
             "csv_path": str(csv_path),
             "original_data_root": str(original_data_root),
+            "missing_reference_policy": "continue_rollout_with_empty_reference_fields",
+            "num_rows_with_full_target_metrics": sum(
+                1 for row in rows if row.get("step_ade") is not None
+            ),
+            "num_rows_with_reference_error": sum(
+                1 for row in rows if row.get("executed_xy_error") is not None
+            ),
             "vis_dir": str(vis_dir) if args.save_vis else None,
             "num_visualized": len(vis_rows),
             "html_path": str(html_path) if html_path is not None else None,
