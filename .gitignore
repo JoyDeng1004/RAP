@@ -10,6 +10,13 @@ metric_cache
 cache
 wandb
 *.jpg
+*.png
 *.ckpt
 MySubmission
 *.json
+*.pkl
+outputs/
+.agents/
+.codex/
+nuplan-devkit/
+process_data/scenarionet/
