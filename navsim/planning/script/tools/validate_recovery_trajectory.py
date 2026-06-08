@@ -467,6 +467,14 @@ def _format_ego_motion_text(original_frame: Optional[Dict], perturbed_frame: Dic
     return "\n".join(lines)
 
 
+def _format_perturbation_text(perturbed_pose_in_original: Optional[np.ndarray]) -> str:
+    if perturbed_pose_in_original is None:
+        return "perturbation: lat=N/A, yaw=N/A"
+    lateral = float(perturbed_pose_in_original[1])
+    yaw = math.degrees(float(perturbed_pose_in_original[2]))
+    return f"perturbation: lat={lateral:+.2f} m, yaw={yaw:+.1f} deg"
+
+
 def _draw_ego_frame(ax, frame_pose: np.ndarray, color: str, label: str, axis_len: float = 2.5) -> None:
     x, y, yaw = frame_pose
     display_x, display_y = -y, x
@@ -548,7 +556,13 @@ def _draw_bev_panel(
         margin = 5.0
         ax.set_xlim(float(xy[:, 0].min() - margin), float(xy[:, 0].max() + margin))
         ax.set_ylim(float(xy[:, 1].min() - margin), float(xy[:, 1].max() + margin))
-    ax.legend(loc="lower right", fontsize=8)
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.18),
+        ncol=2,
+        fontsize=7,
+        framealpha=0.85,
+    )
     return warnings
 
 
@@ -583,6 +597,7 @@ def _save_visualization(
     perturbed_raster_path = data_root / "rendered_sensor_blobs_perturbed" / rel_path
 
     original_camera = _load_image_or_none(original_camera_path)
+    original_raster = _load_image_or_none(original_raster_path)
     perturbed_raster = _load_image_or_none(perturbed_raster_path)
 
     original_cam = original_frame["cams"]["CAM_F0"] if original_frame is not None else None
@@ -606,6 +621,8 @@ def _save_visualization(
             ("CV baseline", cv_original, "dodgerblue", "--"),
         ]
     ego_motion_text = _format_ego_motion_text(original_frame, current_frame)
+    perturbation_text = _format_perturbation_text(perturbed_pose_in_original)
+    bev_text = f"{perturbation_text}\n{ego_motion_text}"
 
     perturbed_trajs = [
         ("GT recovery", target, "lime", "-"),
@@ -613,9 +630,10 @@ def _save_visualization(
         ("CV baseline", cv, "dodgerblue", "--"),
     ]
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    fig, axes = plt.subplots(1, 4, figsize=(24, 6))
     suptitle = (
         f"token={metric_row['token']} | log={metric_row['log_name']}\n"
+        f"{perturbation_text} | "
         f"ADE/FDE={metric_row['ade']:.3f}/{metric_row['fde']:.3f} | "
         f"CV_ADE/CV_FDE={metric_row['cv_ade']:.3f}/{metric_row['cv_fde']:.3f} | "
         f"beats_cv={int(metric_row['beats_cv'])}"
@@ -637,12 +655,22 @@ def _save_visualization(
             "BEV trajectory overlay",
             original_trajs,
             perturbed_pose_in_original,
-            ego_motion_text,
+            bev_text,
         )
     )
     warnings.extend(
         _draw_panel(
             axes[2],
+            original_raster,
+            "original raster",
+            "original ego frame",
+            original_trajs,
+            original_cam,
+        )
+    )
+    warnings.extend(
+        _draw_panel(
+            axes[3],
             perturbed_raster,
             "perturbed raster",
             "perturbed ego frame",

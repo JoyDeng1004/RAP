@@ -248,9 +248,9 @@ def get_ego_params(ego_pose,perturb=False):
         x += random.uniform(-0.5, 0.5)
         y += random.uniform(-0.5, 0.5)
 
-        # yaw ±20° -> 弧度
+        # yaw ±20° -> rad
         yaw += math.radians(random.uniform(-15, 15))
-        yaw = (yaw + math.pi) % (2*math.pi) - math.pi  # wrap到[-pi, pi)
+        yaw = (yaw + math.pi) % (2*math.pi) - math.pi  # wrap to [-pi, pi)
 
         # v ±20%
         vx += random.uniform(-0.2, 0.2) * vx
