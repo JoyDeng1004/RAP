@@ -454,6 +454,13 @@ def main() -> None:
         "R2 delta_lat",
         "MLP drift decodability by hook/call_idx",
     )
+    _bar_plot(
+        plots_dir / "r2_delta_yaw_by_hook_and_callidx.png",
+        labels,
+        results_df["R2_delta_yaw"].to_numpy(dtype=np.float64).tolist(),
+        "R2 delta_yaw",
+        "MLP yaw drift decodability by hook/call_idx",
+    )
 
     merged_control = results_df[["feature_key", "R2_delta_lat"]].rename(columns={"R2_delta_lat": "mlp_r2"})
     linear_control = controls_df[controls_df["model_type"] == "linear"][["feature_key", "R2_delta_lat"]].rename(
