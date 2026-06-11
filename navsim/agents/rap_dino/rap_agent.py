@@ -7,7 +7,6 @@ import torch.nn as nn
 import os
 from pathlib import Path
 import pickle
-from navsim.agents.rap_dino.rap_model import RAPModel
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.planning.training.dataset import load_feature_target_from_pickle
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -37,6 +36,7 @@ class RAPAgent(AbstractAgent):
         cache_data=self._config.cache_data
 
         if not cache_data:
+            from navsim.agents.rap_dino.rap_model import RAPModel
             self._rap_model = RAPModel(config)
 
         if not cache_data:#only for training
