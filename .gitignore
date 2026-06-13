@@ -6,6 +6,9 @@ exp/*
 *.egg-info
 scripts/
 data/
+dataset_aug/
+dataset_norm/
+dataset_perturbed/
 metric_cache
 cache
 wandb
