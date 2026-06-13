@@ -6,6 +6,22 @@ import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
+import torch
+
+# transformers>=4.56 can be imported by torchmetrics during Lightning import.
+# RAP currently runs with torch 2.1, where this pytree API is still private.
+if (
+    not hasattr(torch.utils._pytree, "register_pytree_node")
+    and hasattr(torch.utils._pytree, "_register_pytree_node")
+):
+    def _register_pytree_node_compat(typ, flatten_fn, unflatten_fn, **kwargs):
+        kwargs.pop("serialized_type_name", None)
+        return torch.utils._pytree._register_pytree_node(
+            typ, flatten_fn, unflatten_fn, **kwargs
+        )
+
+    torch.utils._pytree.register_pytree_node = _register_pytree_node_compat
+
 import pytorch_lightning as pl
 
 from navsim.agents.abstract_agent import AbstractAgent
@@ -179,7 +195,16 @@ def main(cfg: DictConfig) -> None:
     logger.info("Num validation samples: %d", len(val_data))
 
     logger.info("Building Trainer")
-    trainer = pl.Trainer(**cfg.trainer.params, callbacks=agent.get_training_callbacks(), logger=WandbLogger(project="rap", name=cfg.experiment_name, id=cfg.experiment_name),
+    from pytorch_lightning.callbacks import ModelCheckpoint
+    checkpoint_dir = Path(cfg.output_dir) / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("Checkpoint directory: %s", checkpoint_dir)
+
+    callbacks = agent.get_training_callbacks()
+    for callback in callbacks:
+        if isinstance(callback, ModelCheckpoint) and callback.dirpath is None:
+            callback.dirpath = str(checkpoint_dir)
+    trainer = pl.Trainer(**cfg.trainer.params, callbacks=callbacks, logger=WandbLogger(project="rap", name=cfg.experiment_name, id=cfg.experiment_name),
             )
 
     logger.info("Starting Training")
