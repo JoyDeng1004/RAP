@@ -6,6 +6,7 @@ from pathlib import Path
 from tqdm import tqdm
 import pickle
 import lzma
+import logging
 
 from navsim.common.dataclasses import AgentInput, Scene, SceneFilter, SensorConfig
 from navsim.planning.metric_caching.metric_cache import MetricCache
@@ -13,6 +14,8 @@ import numpy as np
 from pyquaternion import Quaternion
 import os
 import json
+
+logger = logging.getLogger(__name__)
 
 def is_simple(frame_list, current_index=3, final_index=11, interval=0.5, threshold=0.5):
     current_frame = frame_list[current_index]
@@ -108,7 +111,11 @@ def filter_scenes(data_path: Path, scene_filter: SceneFilter, enable_filter: boo
             if scene_filter.log_names is not None and log_pickle_path.name.replace(".pkl", "") not in scene_filter.log_names:
                 continue
 
-            scene_dict_list = pickle.load(open(log_pickle_path, "rb"))
+            try:
+                scene_dict_list = pickle.load(open(log_pickle_path, "rb"))
+            except (EOFError, pickle.UnpicklingError) as exc:
+                logger.warning("Skipping unreadable log pickle %s: %s", log_pickle_path, exc)
+                continue
             for frame_list in split_list(scene_dict_list, scene_filter.num_frames, scene_filter.frame_interval):
                 # Filter scenes which are too short
                 if len(frame_list) < scene_filter.num_frames:
@@ -155,7 +162,11 @@ def filter_scenes(data_path: Path, scene_filter: SceneFilter, enable_filter: boo
         for log_pickle_path in tqdm(log_files, desc="Loading logs"):
             frame_interval = scene_filter.frame_interval
             
-            scene_dict_list = pickle.load(open(log_pickle_path, "rb"))
+            try:
+                scene_dict_list = pickle.load(open(log_pickle_path, "rb"))
+            except (EOFError, pickle.UnpicklingError) as exc:
+                logger.warning("Skipping unreadable log pickle %s: %s", log_pickle_path, exc)
+                continue
             for frame_list in split_list(scene_dict_list, scene_filter.num_frames, frame_interval):
                 if len(frame_list) < scene_filter.num_frames:
                     continue
