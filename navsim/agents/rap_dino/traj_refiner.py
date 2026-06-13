@@ -25,11 +25,11 @@ class Traj_refiner(nn.Module):
     def forward(self, bev_feature,proposal_list,image_feature):
 
         proposals = self.traj_decoder(bev_feature).reshape(bev_feature.shape[0], -1, self.poses_num, self.state_size)
-
+        # proposals.shape: [2, 64, 10, 3]
         proposal_list.append(proposals)
 
         if self.traj_bev:
-            bev_feature = self.Bev_refiner(proposals,bev_feature,image_feature)
+            bev_feature = self.Bev_refiner(proposals,bev_feature,image_feature) # bev_feature.shape: [2, 640, 1280]
 
         return bev_feature,proposal_list
 

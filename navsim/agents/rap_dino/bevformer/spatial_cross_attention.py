@@ -412,6 +412,10 @@ class MSDeformableAttention3D(BaseModule):
                 MultiScaleDeformableAttnFunction = MultiScaleDeformableAttnFunction_fp32
             else:
                 MultiScaleDeformableAttnFunction = MultiScaleDeformableAttnFunction_fp32
+            import pdb;pdb.set_trace()
+            # sampling_locations.shape: [8, 597, 8, 1, 16, 2]
+            # attention_weights.shape: [8, 597, 8, 1, 16]
+            # value.shape: [8, 1344, 8, 160]
             output = MultiScaleDeformableAttnFunction.apply(
                 value, spatial_shapes, level_start_index, sampling_locations,
                 attention_weights, self.im2col_step)

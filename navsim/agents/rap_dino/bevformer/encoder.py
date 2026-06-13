@@ -280,7 +280,10 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
             reference_points_cam, bev_mask = self.point_sampling(
                 reference_points,  kwargs['img_metas'])
-
+            # reference_points_cam.shape: [4,2,640,16,2]
+            # bev_mask.shape:[4,2,640,16]
+            # bev_mask.sum(): 12656 (valid)
+        import pdb;pdb.set_trace()
         for lid, layer in enumerate(self.layers):
             output = layer(
                 bev_query,

@@ -127,8 +127,8 @@ class ImgEncoder(nn.Module):
             #img = self.transform(img)
             if self.training and self.use_grid_mask:
                 img = self.grid_mask(img)
-            img_feats = self.img_backbone(pixel_values=img)['last_hidden_state']
-            img_feats = self._tokens_to_map(img_feats,B,N,img.shape[2],img.shape[3])
+            img_feats = self.img_backbone(pixel_values=img)['last_hidden_state']    # img_feats.shape:[8, 1349, 1280] (output of DINO)
+            img_feats = self._tokens_to_map(img_feats,B,N,img.shape[2],img.shape[3])    # img_feats.shape:[8, 1280, 28, 48]
 
             if isinstance(img_feats, dict):
                 img_feats = list(img_feats.values())
@@ -162,11 +162,12 @@ class ImgEncoder(nn.Module):
             level_start_index = torch.cat((spatial_shape.new_zeros(
                 (1,)), spatial_shape.prod(1).cumsum(0)[:-1]))
 
-            feat = feat.permute(  0, 2, 1, 3)  # (num_cam, H*W, bs, embed_dims)
+            feat = feat.permute(  0, 2, 1, 3)  # (num_cam, H*W, bs, embed_dims) = (4,1344,2,1280)
 
             spatial_shapes.append(spatial_shape)
             feat_flatten.append(feat)#6,1,240,256
-
+            # feat_flatten[0].shape: [2,1344,2,1280]
+        import pdb; pdb.set_trace()
         return feat_flatten[-1],spatial_shapes[-1],level_start_index,kwargs
 
 def make_transform(resize_size: int = 224):

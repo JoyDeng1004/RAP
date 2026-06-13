@@ -116,7 +116,8 @@ class RAPModel(nn.Module):
             ego_status[:,1:3]=0
 
         image_feature = self._backbone(camera_feature,img_metas=features)  # b,64,64,64
-
+        # image_feature[0]: [4, 1344, 2, 1280]
+        # len(image_feature) = 4
         output={}
 
         ego_feature=self.hist_encoding(ego_status)[:,None]

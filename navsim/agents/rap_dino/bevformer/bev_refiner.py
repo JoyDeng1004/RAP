@@ -137,5 +137,11 @@ class Bev_refiner(nn.Module):
             # shift=shift,
             **kwargs
         )
+        import pdb;pdb.set_trace()
+        # bev_queries.shape: [2, 640, 1280]
+        # feat_flatten.shape: [4, 1344, 2, 1280]
+        # spatial_shapes: [28, 48]
+        # level_start_index: tensor([0])
+        # bev_pos.shape: [2, 640, 1280]
 
         return bev_feature
