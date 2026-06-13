@@ -32,8 +32,11 @@ class RAPAgent(AbstractAgent):
         self._config = config
         self._lr = lr
         self._checkpoint_path = checkpoint_path
+        self._missing_metric_cache_tokens = set()
 
         cache_data=self._config.cache_data
+        if self._checkpoint_path:
+            os.environ.setdefault("RAP_DINO_OFFLINE_INIT", "1")
 
         if not cache_data:
             from navsim.agents.rap_dino.rap_model import RAPModel
@@ -448,6 +451,30 @@ class RAPAgent(AbstractAgent):
         proposal_list = pred["proposal_list"]
         target_trajectory = targets["trajectory"]
         score_mask = targets['score_mask']
+        if isinstance(score_mask, torch.Tensor):
+            score_mask = score_mask.to(device=proposals.device, dtype=torch.bool)
+        else:
+            score_mask = torch.as_tensor(score_mask, device=proposals.device, dtype=torch.bool)
+
+        if self._config.pdm_scorer:
+            metric_cache_paths = self.train_metric_cache_paths if self.training else self.test_metric_cache_paths
+            tokens = targets["token"]
+            metric_cache_mask = torch.tensor(
+                [token in metric_cache_paths for token in tokens],
+                device=proposals.device,
+                dtype=torch.bool,
+            )
+            missing_tokens = [token for token, ok in zip(tokens, metric_cache_mask.tolist()) if not ok]
+            new_missing_tokens = [token for token in missing_tokens if token not in self._missing_metric_cache_tokens]
+            if new_missing_tokens:
+                preview = ", ".join(new_missing_tokens[:5])
+                suffix = "..." if len(new_missing_tokens) > 5 else ""
+                print(
+                    f"[RAPAgent] Missing metric cache for {len(new_missing_tokens)} token(s); "
+                    f"disabling PDM scorer for these samples. Examples: {preview}{suffix}"
+                )
+                self._missing_metric_cache_tokens.update(new_missing_tokens)
+            score_mask = score_mask & metric_cache_mask
 
         if self._config.pdm_scorer:
             if score_mask.sum()>0:
@@ -480,6 +507,7 @@ class RAPAgent(AbstractAgent):
             final_score_loss = self.bce_logit_loss(pred["pred_logit"][..., -1], final_scores)
             sub_score_loss = pred_ce_loss = pred_l1_loss = pred_area_loss = 0
             best_score = best_scores.mean()
+            score = best_score
 
 
         trajectory_loss = 0
@@ -595,10 +623,7 @@ class RAPAgent(AbstractAgent):
 
         checkpoint_cb = ModelCheckpoint(
             save_last=True,
-            save_top_k=3,
-            monitor='val/score',
-            filename='{epoch}-{step}',
-            mode="max"
+            save_top_k=0,
             )
 
         return [checkpoint_cb]
