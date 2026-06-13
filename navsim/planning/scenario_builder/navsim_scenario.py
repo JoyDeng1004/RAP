@@ -60,11 +60,23 @@ class NavSimScenario(AbstractScenario):
 
         self._initial_frame_idx = self._scene_data.num_history_frames - 1
 
-        self._initial_lidar_token = self._scene.frames[self._initial_frame_idx].token
-        self._log_name = self._scene_data.log_name
-        self._route_roadblock_ids = self._scene.frames[self._initial_frame_idx].roadblock_ids
+        initial_frame = self._scene.frames[self._initial_frame_idx]
+        if initial_frame is None:
+            raise ValueError(f"Initial frame at index {self._initial_frame_idx} is missing.")
 
-        self._time_points = [TimePoint(int(frame.timestamp)) for frame in self._scene.frames]
+        missing_future_frame_indices = [
+            frame_idx
+            for frame_idx, frame in enumerate(self._scene.frames[self._initial_frame_idx :], self._initial_frame_idx)
+            if frame is None
+        ]
+        if missing_future_frame_indices:
+            raise ValueError(f"Missing current/future frames at indices {missing_future_frame_indices}.")
+
+        self._initial_lidar_token = initial_frame.token
+        self._log_name = self._scene_data.log_name
+        self._route_roadblock_ids = initial_frame.roadblock_ids
+
+        self._time_points = [None if frame is None else TimePoint(int(frame.timestamp)) for frame in self._scene.frames]
         self._future_sampling = TrajectorySampling(num_poses=len(self._time_points) + 1, interval_length=0.5)
         self._ego_vehicle_parameters = ego_vehicle_parameters
 
@@ -158,7 +170,9 @@ class NavSimScenario(AbstractScenario):
         assert (
             0 <= frame_idx < self.get_number_of_iterations()
         ), f"Iteration {frame_idx} out of bound of {self.get_number_of_iterations()} iterations!"
-        return self._time_points[frame_idx]
+        time_point = self._time_points[frame_idx]
+        assert time_point is not None, f"Frame {frame_idx} has no timestamp!"
+        return time_point
 
     def get_ego_state_at_iteration(self, iteration: int) -> EgoState:
         """Inherited, see superclass."""
