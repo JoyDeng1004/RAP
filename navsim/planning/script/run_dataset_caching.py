@@ -102,6 +102,15 @@ def main(cfg: DictConfig) -> None:
         for log_file, tokens_list in scene_loader.get_tokens_list_per_log().items()
     ]
     print('data_points', len(data_points))
+    if not data_points:
+        raise ValueError(
+            "No scenarios matched the dataset caching filter. "
+            f"data_path={data_path}, "
+            f"log_names={scene_filter.log_names}, "
+            f"tokens={scene_filter.tokens}. "
+            "For augmented data with suffixed log names, override "
+            "train_test_split.scene_filter.log_names=null."
+        )
     cache_features(data_points)
     len_points = len(scene_loader)
     del scene_loader
