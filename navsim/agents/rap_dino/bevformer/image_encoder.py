@@ -167,7 +167,6 @@ class ImgEncoder(nn.Module):
             spatial_shapes.append(spatial_shape)
             feat_flatten.append(feat)#6,1,240,256
             # feat_flatten[0].shape: [2,1344,2,1280]
-        import pdb; pdb.set_trace()
         return feat_flatten[-1],spatial_shapes[-1],level_start_index,kwargs
 
 def make_transform(resize_size: int = 224):

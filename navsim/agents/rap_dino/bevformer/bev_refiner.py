@@ -114,7 +114,8 @@ class Bev_refiner(nn.Module):
         else:
             ref_2d= None
             # bev_queries= self.in_proj.weight[None].repeat(batch_size, 1, 1)
-
+        
+        # ref_2d.sahpe: [2,640,3]
         bev_mask = torch.zeros((batch_size, self.bev_h, self.bev_w), device=img.device).to(img.dtype)
         bev_pos = self.positional_encoding(bev_mask).to(img.dtype)  # 256,100,100
         bev_pos = bev_pos.flatten(2).permute(0, 2, 1)  # len,bs,256
@@ -137,7 +138,6 @@ class Bev_refiner(nn.Module):
             # shift=shift,
             **kwargs
         )
-        import pdb;pdb.set_trace()
         # bev_queries.shape: [2, 640, 1280]
         # feat_flatten.shape: [4, 1344, 2, 1280]
         # spatial_shapes: [28, 48]
