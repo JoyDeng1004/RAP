@@ -1,5 +1,7 @@
 from .custom_base_transformer_layer import MyCustomBaseTransformerLayer
 import copy
+from datetime import datetime
+import os
 import warnings
 from mmengine.registry import MODELS
 from mmcv.cnn.bricks.transformer import TransformerLayerSequence
@@ -12,6 +14,37 @@ from mmcv.utils import ext_loader
 ext_module = ext_loader.load_ext(
     '_ext', ['ms_deform_attn_backward', 'ms_deform_attn_forward'])
 import torch.nn as nn
+
+_RAP_REF2D_DUMP_DONE = False
+_RAP_REF2D_DUMP_STAGE_COUNT = 0
+
+
+def _rap_dump_ref2d_enabled():
+    return os.environ.get('RAP_DUMP_REF2D', '').lower() in ('1', 'true', 'yes', 'on')
+
+
+def _rap_numpy_batch_item(value, batch_index):
+    if isinstance(value, torch.Tensor):
+        return value[batch_index].detach().cpu().numpy()
+    return np.asarray(value[batch_index])
+
+
+def _rap_uint8_rgb_images_from_debug(camera_image_debug, batch_index, num_cam):
+    camera_images = _rap_numpy_batch_item(camera_image_debug, batch_index)
+    assert camera_images.ndim == 4 and camera_images.shape[0] == num_cam
+    assert camera_images.shape[-1] == 3
+    return np.clip(camera_images, 0, 255).astype(np.uint8)
+
+
+def _rap_uint8_rgb_images_from_camera_feature(camera_feature, batch_index, num_cam):
+    assert camera_feature.ndim == 5
+    camera_images = camera_feature[batch_index].detach().to(torch.float32).cpu().numpy()
+    assert camera_images.shape[0] == num_cam and camera_images.shape[1] == 3
+    camera_images = camera_images.transpose(0, 2, 3, 1)
+    image_mean = np.array([123.675, 116.28, 103.53], dtype=np.float32)
+    image_std = np.array([58.395, 57.12, 57.375], dtype=np.float32)
+    camera_images = camera_images * image_std + image_mean
+    return np.clip(camera_images, 0, 255).astype(np.uint8)
 
 @MODELS.register_module()
 class BEVFormerEncoder(TransformerLayerSequence):
@@ -280,10 +313,102 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
             reference_points_cam, bev_mask = self.point_sampling(
                 reference_points,  kwargs['img_metas'])
+            if ref_2d is not None and _rap_dump_ref2d_enabled():
+                global _RAP_REF2D_DUMP_DONE, _RAP_REF2D_DUMP_STAGE_COUNT
+                if not _RAP_REF2D_DUMP_DONE:
+                    dump_stage = int(os.environ.get('RAP_DUMP_STAGE', '0'))
+                    current_stage = _RAP_REF2D_DUMP_STAGE_COUNT
+                    _RAP_REF2D_DUMP_STAGE_COUNT += 1
+                    if current_stage == dump_stage:
+                        with torch.no_grad():
+                            ref_pos_t = (ref_2d[:, :, None, :2] + 32) / 64
+                            corners = self.compute_corners(ref_2d.reshape(-1, 3)).reshape(
+                                ref_2d.shape[0], ref_2d.shape[1], 4, 2)
+
+                            batch_index = 0
+                            num_cam = reference_points_cam.shape[0]
+                            D = reference_points_cam.shape[3]
+                            Q = ref_2d.shape[1]
+                            npp = self.num_points_in_pillar
+
+                            assert ref_2d.ndim == 3 and ref_2d.shape[2] == 3
+                            assert ref_pos_t.shape == (ref_2d.shape[0], Q, 1, 2)
+                            assert corners.shape == (ref_2d.shape[0], Q, 4, 2)
+                            assert ref_3d.shape == (ref_2d.shape[0], D, Q, 3)
+                            assert reference_points.shape == (D, ref_2d.shape[0], Q, 4)
+                            assert reference_points_cam.shape == (num_cam, ref_2d.shape[0], Q, D, 2)
+                            assert bev_mask.shape == (num_cam, ref_2d.shape[0], Q, D)
+                            assert D == 4 * npp
+
+                            dump_dir = os.environ.get('RAP_DUMP_DIR', './ref2d_debug')
+                            os.makedirs(dump_dir, exist_ok=True)
+                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                            dump_path = os.path.join(
+                                dump_dir, f'ref2d_stage{current_stage}_{timestamp}.npz')
+
+                            dump_data = dict(
+                                ref_2d=ref_2d[batch_index].detach().cpu().numpy(),
+                                ref_pos=ref_pos_t[batch_index, :, 0].detach().cpu().numpy(),
+                                corners=corners[batch_index].detach().cpu().numpy(),
+                                ref_3d=ref_3d[batch_index].detach().cpu().numpy(),
+                                reference_points_cam=reference_points_cam[:, batch_index].detach().cpu().numpy(),
+                                bev_mask=bev_mask[:, batch_index].detach().cpu().numpy(),
+                                bev_h=np.array(bev_h),
+                                bev_w=np.array(bev_w),
+                                npp=np.array(npp),
+                                D=np.array(D),
+                                proposal_num=np.array(bev_h),
+                                num_poses=np.array(bev_w),
+                                Q=np.array(Q),
+                                num_cam=np.array(num_cam),
+                                pc_range=np.array(self.pc_range),
+                                half_width=np.array(self.half_width),
+                                half_length=np.array(self.half_length),
+                                rear_axle_to_center=np.array(self.rear_axle_to_center),
+                                lidar_height=np.array(self.lidar_height),
+                                query_order=np.array('q = p*T + t'),
+                            )
+
+                            img_metas = kwargs['img_metas']
+                            if 'img_shape' in img_metas:
+                                dump_data['img_shape'] = img_metas['img_shape'][batch_index].detach().cpu().numpy()
+
+                            camera_image_debug = img_metas.get('camera_image_debug')
+                            camera_feature = img_metas.get('camera_feature')
+                            if camera_image_debug is not None:
+                                camera_images = _rap_uint8_rgb_images_from_debug(
+                                    camera_image_debug, batch_index, num_cam)
+                                dump_data.update(
+                                    camera_images=camera_images,
+                                    camera_order=np.array(['cam_b0', 'cam_f0', 'cam_l0', 'cam_r0']),
+                                    camera_image_source=np.array(
+                                        'features.camera_image_debug resized/padded unnormalized real image'),
+                                    camera_image_raw_color_order=np.array('RGB'),
+                                    camera_image_color_order=np.array('RGB'),
+                                    camera_image_to_rgb=np.array(False),
+                                )
+                            elif camera_feature is not None:
+                                image_mean = np.array([123.675, 116.28, 103.53], dtype=np.float32)
+                                image_std = np.array([58.395, 57.12, 57.375], dtype=np.float32)
+                                camera_images = _rap_uint8_rgb_images_from_camera_feature(
+                                    camera_feature, batch_index, num_cam)
+                                dump_data.update(
+                                    camera_images=camera_images,
+                                    camera_order=np.array(['cam_b0', 'cam_f0', 'cam_l0', 'cam_r0']),
+                                    camera_image_source=np.array(
+                                        'features.camera_feature denormalized fallback'),
+                                    camera_image_raw_color_order=np.array('RGB'),
+                                    camera_image_color_order=np.array('RGB'),
+                                    camera_image_mean=image_mean,
+                                    camera_image_std=image_std,
+                                    camera_image_to_rgb=np.array(False),
+                                )
+
+                            np.savez_compressed(dump_path, **dump_data)
+                        _RAP_REF2D_DUMP_DONE = True
             # reference_points_cam.shape: [4,2,640,16,2]
             # bev_mask.shape:[4,2,640,16]
             # bev_mask.sum(): 12656 (valid)
-        import pdb;pdb.set_trace()
         for lid, layer in enumerate(self.layers):
             output = layer(
                 bev_query,
