@@ -103,7 +103,7 @@ class Bev_refiner(nn.Module):
                 except AttributeError:
                     m.init_weights()
 
-    def forward(self, pose,prev_bev,image_feature):
+    def forward(self, pose,prev_bev,image_feature,features=None):
         img=image_feature[0]
         batch_size = img.shape[2]
         bev_queries = prev_bev  # self.in_proj(pose)
@@ -120,6 +120,9 @@ class Bev_refiner(nn.Module):
         bev_pos = bev_pos.flatten(2).permute(0, 2, 1)  # len,bs,256
 
         feat_flatten, spatial_shapes, level_start_index, kwargs = image_feature
+        kwargs = dict(kwargs)
+        if features is not None:
+            kwargs["features"] = features
 
         #kwargs['img_metas']["prev_bev"] = prev_bev
 

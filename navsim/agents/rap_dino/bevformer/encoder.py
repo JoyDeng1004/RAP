@@ -69,6 +69,33 @@ class BEVFormerEncoder(TransformerLayerSequence):
         self.lidar_height=lidar_height
 
     @staticmethod
+    def _features_from_kwargs(kwargs):
+        features = kwargs.get("features")
+        if features is None:
+            features = kwargs.get("img_metas", {})
+        return features
+
+    @staticmethod
+    def _sca_ref_2d(ref_2d, features):
+        ref_2d_sca = ref_2d.clone()
+        if isinstance(features, dict) and "ref2d_aug_shift_y" in features:
+            shift_y = features["ref2d_aug_shift_y"].to(device=ref_2d.device, dtype=ref_2d.dtype)
+            if shift_y.ndim == 0:
+                shift_y = shift_y.repeat(ref_2d.shape[0])
+            edge_nudge = torch.where(
+                shift_y != 0,
+                torch.sign(shift_y) * shift_y.new_tensor(1e-6),
+                torch.zeros_like(shift_y),
+            )
+            ref_2d_sca[..., 1] += (shift_y + edge_nudge)[:, None]
+        return ref_2d_sca
+
+    @staticmethod
+    def _record_ref2d_debug(features, **values):
+        if isinstance(features, dict) and isinstance(features.get("ref2d_debug"), dict):
+            features["ref2d_debug"].update(values)
+
+    @staticmethod
     def get_reference_points(H, W, Z=8, num_points_in_pillar=4, dim='3d', bs=1, device='cpu', dtype=torch.float):
         """Get the reference points used in SCA and TSA.
         Args:
@@ -234,6 +261,8 @@ class BEVFormerEncoder(TransformerLayerSequence):
                 ref_pos =( ref_2d[:, :, None, :2]+32)/64
 
                 hybird_ref_2d = torch.cat([ref_pos, ref_pos])
+                features = self._features_from_kwargs(kwargs)
+                ref_2d_sca = self._sca_ref_2d(ref_2d, features)
 
                 zs = torch.linspace(self.pc_range[2]-self.lidar_height, self.pc_range[5]-self.lidar_height, self.num_points_in_pillar, dtype=torch.float32,
                                     device=ref_2d.device)
@@ -249,7 +278,7 @@ class BEVFormerEncoder(TransformerLayerSequence):
                 # ref_pos_rep = ref_pos.unsqueeze(3).repeat(1, 1, 1, P, 1).reshape(B, len_bev, 4 * P, 2)  # (B, len_bev, 4*P, 2)
 
                 # ref_3d = torch.cat([ref_pos_rep, zs_rep], dim=-1).permute(0, 2, 1, 3)
-                ref_pos =self.compute_corners(ref_2d.reshape(-1,3)).reshape(-1,len_bev,4,2)
+                ref_pos =self.compute_corners(ref_2d_sca.reshape(-1,3)).reshape(-1,len_bev,4,2)
 
                 zs=zs.repeat(1,1,4,1)
 
@@ -280,6 +309,17 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
             reference_points_cam, bev_mask = self.point_sampling(
                 reference_points,  kwargs['img_metas'])
+
+            if ref_2d is not None:
+                self._record_ref2d_debug(
+                    features,
+                    ref_pos=(ref_2d[:, :, :2] + 32) / 64,
+                    hybird_ref_2d=hybird_ref_2d,
+                    ref_2d_sca=ref_2d_sca,
+                    ref_3d=ref_3d,
+                    reference_points_cam=reference_points_cam,
+                    bev_mask=bev_mask,
+                )
 
         for lid, layer in enumerate(self.layers):
             output = layer(

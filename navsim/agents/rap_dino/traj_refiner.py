@@ -22,14 +22,14 @@ class Traj_refiner(nn.Module):
 
         self.traj_decoder = MLP(config.tf_d_model, config.tf_d_ffn,  self.state_size)
 
-    def forward(self, bev_feature,proposal_list,image_feature):
+    def forward(self, bev_feature,proposal_list,image_feature,features=None):
 
         proposals = self.traj_decoder(bev_feature).reshape(bev_feature.shape[0], -1, self.poses_num, self.state_size)
 
         proposal_list.append(proposals)
 
         if self.traj_bev:
-            bev_feature = self.Bev_refiner(proposals,bev_feature,image_feature)
+            bev_feature = self.Bev_refiner(proposals,bev_feature,image_feature,features)
 
         return bev_feature,proposal_list
 

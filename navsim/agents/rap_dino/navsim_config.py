@@ -26,6 +26,12 @@ class RAPConfig:
 
     pdm_scorer: bool=True
 
+    ref2d_observation_aug: bool = False
+    ref2d_aug_scope: str = "sca"
+    ref2d_aug_y_range: Tuple[float, float] = (-1.0, 1.0)
+    ref2d_aug_prob: float = 1.0
+    recovery_target_enabled: bool = False
+
     bev_map: bool=False
     bev_agent: bool=False
 

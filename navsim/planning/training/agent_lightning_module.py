@@ -14,6 +14,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from navsim.agents.rap_dino.recovery.recovery_target import make_recovery_trajectory
 
 import math
 import torch
@@ -35,6 +36,52 @@ class AgentLightningModule(pl.LightningModule):
         # self.real_feat = []
         # self.synth_feat = []
 
+    def _sample_ref2d_shift(self, features: Dict[str, Tensor], targets: Dict[str, Tensor]) -> Tensor:
+        config = self.agent._config
+        trajectory = targets["trajectory"]
+        lo, hi = config.ref2d_aug_y_range
+        shift_y = torch.empty(
+            trajectory.shape[0],
+            device=trajectory.device,
+            dtype=trajectory.dtype,
+        ).uniform_(float(lo), float(hi))
+        if config.ref2d_aug_prob < 1.0:
+            keep = torch.rand_like(shift_y) < float(config.ref2d_aug_prob)
+            shift_y = torch.where(keep, shift_y, torch.zeros_like(shift_y))
+        return shift_y
+
+    def _prepare_recovery_batch(
+        self,
+        features: Dict[str, Tensor],
+        targets: Dict[str, Tensor],
+    ) -> Tuple[Dict[str, Tensor], Dict[str, Tensor]]:
+        config = self.agent._config
+        if not (config.ref2d_observation_aug or config.recovery_target_enabled):
+            return features, targets
+
+        features = dict(features)
+        targets = dict(targets)
+        shift_y = self._sample_ref2d_shift(features, targets)
+        targets["ref2d_aug_shift_y"] = shift_y
+
+        if config.ref2d_observation_aug:
+            if config.ref2d_aug_scope != "sca":
+                raise ValueError(f"Unsupported ref2d_aug_scope={config.ref2d_aug_scope!r}")
+            features["ref2d_aug_shift_y"] = shift_y
+
+        if config.recovery_target_enabled:
+            targets["trajectory"] = make_recovery_trajectory(
+                targets["trajectory"],
+                shift_y=shift_y,
+                dt=config.trajectory_sampling.interval_length,
+            )
+            targets["score_mask"] = torch.ones(
+                targets["trajectory"].shape[0],
+                device=targets["trajectory"].device,
+                dtype=torch.bool,
+            )
+        return features, targets
+
     def _step(self, batch: Tuple[Dict[str, Tensor], Dict[str, Tensor]], logging_prefix: str) -> Tensor:
         """
         Propagates the model forward and backwards and computes/logs losses and metrics.
@@ -43,6 +90,7 @@ class AgentLightningModule(pl.LightningModule):
         :return: scalar loss
         """
         features, targets = batch
+        features, targets = self._prepare_recovery_batch(features, targets)
         batch_size = features['camera_valid'].shape[0]
         #features['camera_feature'] = features.pop('rendered_camera_feature')
         prediction = self.agent.forward(features,targets)
@@ -162,6 +210,7 @@ class AgentLightningModule(pl.LightningModule):
 
         if not self.training or real_only:
             if real_valid_mask.any():
+                real_features, real_targets = self._prepare_recovery_batch(real_features, real_targets)
                 prediction = self.agent.forward(real_features,real_targets)
                 loss_dict = self.agent.compute_loss(real_features, real_targets, prediction)
                 ade_real = torch.mean(torch.norm(prediction['trajectory'][:,:,:2] - real_targets['trajectory'][:,:,:2], dim=-1))
@@ -217,6 +266,7 @@ class AgentLightningModule(pl.LightningModule):
                 all_targets[k] = torch.cat([v, real_targets[k]], dim=0) if isinstance(v, torch.Tensor) else v + real_targets[k] 
  
 
+            all_features, all_targets = self._prepare_recovery_batch(all_features, all_targets)
             prediction = self.agent.forward(all_features,all_targets)
 
             loss_dict = self.agent.compute_loss(all_features, all_targets, prediction)

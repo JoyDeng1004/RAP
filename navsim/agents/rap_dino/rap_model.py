@@ -126,7 +126,7 @@ class RAPModel(nn.Module):
         proposal_list = []
 
         for i, refine in enumerate(self._trajectory_head):
-            bev_feature, proposal_list = refine(bev_feature, proposal_list,image_feature)
+            bev_feature, proposal_list = refine(bev_feature, proposal_list, image_feature, features)
 
         proposals=proposal_list[-1]
 
@@ -145,7 +145,7 @@ class RAPModel(nn.Module):
         output["bev_feature"]=image_feature[0].permute(2,0,1,3)
 
         lambda_ = self.lambda_scheduler(self.progress)
-        feat = image_feature[0][[1]]   
+        feat = image_feature[0][[1]] if image_feature[0].shape[0] > 1 else image_feature[0][:1]
         feat_grad = feat[:,:,:self.batch_size].detach()          
         feat_no_grad = feat[:,:,self.batch_size:]   
         mixed_feat = torch.cat([feat_grad, feat_no_grad], dim=2)
@@ -167,6 +167,4 @@ class RAPModel(nn.Module):
             output["pdm_score"] = pdm_score
 
         return output
-
-
 

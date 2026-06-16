@@ -22,6 +22,12 @@ from navsim.common.waymo_utils import get_rater_feedback_score, interpolate_traj
 from navsim.agents.diffusiondrive.modules.scheduler import WarmupCosLR
 
 class RAPAgent(AbstractAgent):
+    def __setattr__(self, name, value):
+        if isinstance(value, nn.Module) and "_modules" not in self.__dict__:
+            self.__dict__[name] = value
+            return
+        super().__setattr__(name, value)
+
     def __init__(
             self,
             config,
@@ -70,12 +76,15 @@ class RAPAgent(AbstractAgent):
 
             else:
                 from .score_module.compute_navsim_score import get_scores
-                metric_cache = MetricCacheLoader(Path(config.train_metric_cache_path))
-
-                self.train_metric_cache_paths = metric_cache.metric_cache_paths
-                self.test_metric_cache_paths = metric_cache.metric_cache_paths
 
                 self.get_scores = get_scores
+                if self._config.pdm_scorer:
+                    metric_cache = MetricCacheLoader(Path(config.train_metric_cache_path))
+                    self.train_metric_cache_paths = metric_cache.metric_cache_paths
+                    self.test_metric_cache_paths = metric_cache.metric_cache_paths
+                else:
+                    self.train_metric_cache_paths = {}
+                    self.test_metric_cache_paths = {}
 
         self.init_from_pretrained()
 
@@ -449,7 +458,21 @@ class RAPAgent(AbstractAgent):
         target_trajectory = targets["trajectory"]
         score_mask = targets['score_mask']
 
-        if self._config.pdm_scorer:
+        zero = proposals.new_zeros(())
+        trajectory_only = (
+            getattr(config, "recovery_target_enabled", False)
+            and config.sub_score_weight == 0
+            and config.final_score_weight == 0
+            and config.pred_ce_weight == 0
+            and config.pred_l1_weight == 0
+            and config.pred_area_weight == 0
+        )
+
+        if trajectory_only:
+            sub_score_loss = final_score_loss = pred_ce_loss = pred_l1_loss = pred_area_loss = zero
+            best_score = zero
+            score = zero
+        elif self._config.pdm_scorer:
             if score_mask.sum()>0:
                 score_targets = {k: v[score_mask] if isinstance(v, torch.Tensor) else [x for x, m in zip(v, score_mask) if m] for k, v in targets.items()}
                 score_proposals = proposals[score_mask]
@@ -478,7 +501,7 @@ class RAPAgent(AbstractAgent):
         else:
             final_scores, best_scores = self.compute_score_rfs(targets, proposals)
             final_score_loss = self.bce_logit_loss(pred["pred_logit"][..., -1], final_scores)
-            sub_score_loss = pred_ce_loss = pred_l1_loss = pred_area_loss = 0
+            sub_score_loss = pred_ce_loss = pred_l1_loss = pred_area_loss = zero
             best_score = best_scores.mean()
 
 
@@ -509,16 +532,16 @@ class RAPAgent(AbstractAgent):
         # inter_loss1 = inter_loss_list[1]
 
 
-        if pred["agent_states"] is not None:
+        if pred["agent_states"] is not None and (config.agent_class_weight != 0 or config.agent_box_weight != 0):
             agent_class_loss, agent_box_loss = _agent_loss(targets, pred, config)
         else:
-            agent_class_loss = 0
-            agent_box_loss = 0
+            agent_class_loss = zero
+            agent_box_loss = zero
 
-        if pred["bev_semantic_map"] is not None:
+        if pred["bev_semantic_map"] is not None and config.bev_semantic_weight != 0:
             bev_semantic_loss = F.cross_entropy(pred["bev_semantic_map"], targets["bev_semantic_map"].long())
         else:
-            bev_semantic_loss = 0
+            bev_semantic_loss = zero
 
         loss = (
                 config.trajectory_weight * trajectory_loss
