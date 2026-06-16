@@ -11,6 +11,17 @@ PhotoMetricDistortionMultiViewImage = PhotoMetricDistortionMultiViewImage(
 NormalizeMultiviewImage = NormalizeMultiviewImage(mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=False)
 RandomScaleImageMultiViewImage = RandomScaleImageMultiViewImage(scales=[0.4])
 PadMultiViewImage = PadMultiViewImage(size=None, size_divisor=32, pad_val=0)
+CAMERA_ORDER = ('cam_b0', 'cam_f0', 'cam_l0', 'cam_r0')
+
+
+def _copy_image_result(image_result):
+    copied = {}
+    for key, value in image_result.items():
+        if isinstance(value, list):
+            copied[key] = [item.copy() if isinstance(item, np.ndarray) else item for item in value]
+        else:
+            copied[key] = value
+    return copied
 
 
 def LoadMultiViewImageFromFiles(agent_input,synthetic=False):
@@ -25,7 +36,8 @@ def LoadMultiViewImageFromFiles(agent_input,synthetic=False):
     validity_list = []
 
     for cameras in agent_input.cameras[-1:]:
-        for cam in [cameras.cam_b0, cameras.cam_f0, cameras.cam_l0,cameras.cam_r0]:#, cameras.cam_l1, cameras.cam_r1 cameras.cam_l1, cameras.cam_l2, , cameras.cam_r1, cameras.cam_r2
+        for camera_name in CAMERA_ORDER:
+            cam = getattr(cameras, camera_name)
             if cam.image is None:
                 continue
             if synthetic:
@@ -75,6 +87,15 @@ def _get_bev_feature( agent_input, training: bool=False):
     real_image_result=LoadMultiViewImageFromFiles(agent_input,synthetic=False)
     # if training:
     #     image_result = PhotoMetricDistortionMultiViewImage(image_result)
+    debug_image_result = _copy_image_result(real_image_result)
+    debug_image_result = RandomScaleImageMultiViewImage(debug_image_result)  # 432,768
+    debug_image_result = PadMultiViewImage(debug_image_result)  # 448,768
+    debug_imgs = [
+        np.clip(img, 0, 255).astype(np.uint8)
+        for img in debug_image_result['img']
+    ]
+    camera_image_debug = torch.from_numpy(np.ascontiguousarray(np.stack(debug_imgs, axis=0)))
+
     image_result = synthetic_image_result
     image_result = NormalizeMultiviewImage(image_result)
     image_result = RandomScaleImageMultiViewImage(image_result)  # 432,768
@@ -93,6 +114,7 @@ def _get_bev_feature( agent_input, training: bool=False):
     features = {"camera_feature": real_camera_feature,
                 "camera_valid":real_image_result["validity"],
                 "rendered_camera_feature":synthetic_camera_feature,
+                "camera_image_debug": camera_image_debug,
                 "img_shape": torch.FloatTensor(np.stack(real_image_result["img_shape"])),#8,3
                 "lidar2img": torch.FloatTensor(np.stack(real_image_result["lidar2img"]))#8,4,4
                 }
