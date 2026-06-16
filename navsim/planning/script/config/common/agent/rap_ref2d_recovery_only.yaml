@@ -1,0 +1,33 @@
+_target_: navsim.agents.rap_dino.rap_agent.RAPAgent
+_convert_: 'all'
+
+config:
+  _target_: navsim.agents.rap_dino.navsim_config.RAPConfig
+  _convert_: 'all'
+
+  trajectory_sampling:
+    _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+    _convert_: 'all'
+    time_horizon: 4
+    interval_length: 0.5
+
+  latent: False
+  distill_feature: True
+  pdm_scorer: False
+  cache_data: False
+  ref2d_observation_aug: False
+  ref2d_aug_y_range: [-1.0, 1.0]
+  ref2d_aug_prob: 1.0
+  recovery_target_enabled: True
+  trajectory_weight: 1
+  sub_score_weight: 0
+  final_score_weight: 0
+  pred_ce_weight: 0
+  pred_l1_weight: 0
+  pred_area_weight: 0
+  agent_class_weight: 0
+  agent_box_weight: 0
+  bev_semantic_weight: 0
+
+checkpoint_path: ''
+lr: 1e-4
