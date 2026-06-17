@@ -12,7 +12,7 @@ config:
     interval_length: 0.5
 
   latent: False
-  distill_feature: True
+  distill_feature: False
   pdm_scorer: False
   cache_data: False
   ref2d_observation_aug: True

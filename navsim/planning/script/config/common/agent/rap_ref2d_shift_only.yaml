@@ -12,7 +12,7 @@ config:
     interval_length: 0.5
 
   latent: False
-  distill_feature: True
+  distill_feature: False
   pdm_scorer: True
   cache_data: False
   train_metric_cache_path: './train_metric_cache'
