@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import json
 from typing import Dict, Optional
 
 import numpy as np
@@ -56,3 +58,73 @@ def selected_and_best_proposal_metrics(
     if error is not None:
         result["recovery_metrics_error"] = error
     return result
+
+
+def _jsonable(metrics: Dict) -> Dict:
+    out = {}
+    for key, value in metrics.items():
+        if isinstance(value, np.generic):
+            out[key] = value.item()
+        else:
+            out[key] = value
+    return out
+
+
+def _load_prediction_npz(path: str) -> Dict[str, np.ndarray]:
+    data = np.load(path, allow_pickle=False)
+    prediction = {"trajectory": data["trajectory"]}
+    if "proposals" in data:
+        prediction["proposals"] = data["proposals"]
+    if "score" in data:
+        prediction["score"] = data["score"]
+    return {
+        "prediction": prediction,
+        "target": data["target"],
+        "cv_baseline": data["cv_baseline"],
+        "original_reference": data["original_reference"] if "original_reference" in data else None,
+    }
+
+
+def _parse_named_npz(value: str) -> tuple[str, str]:
+    if "=" not in value:
+        raise argparse.ArgumentTypeError("Use NAME=PATH for --prediction-npz")
+    name, path = value.split("=", 1)
+    if not name:
+        raise argparse.ArgumentTypeError("NAME cannot be empty")
+    return name, path
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Compute selected/best-proposal and recovery metrics from npz dumps.")
+    parser.add_argument(
+        "--prediction-npz",
+        action="append",
+        type=_parse_named_npz,
+        required=True,
+        help="NAME=PATH npz with trajectory, target, cv_baseline, optional proposals/original_reference.",
+    )
+    parser.add_argument("--output-json", default=None)
+    args = parser.parse_args()
+
+    table = {}
+    for name, path in args.prediction_npz:
+        sample = _load_prediction_npz(path)
+        table[name] = _jsonable(
+            selected_and_best_proposal_metrics(
+                sample["prediction"],
+                sample["target"],
+                sample["cv_baseline"],
+                sample["original_reference"],
+            )
+        )
+
+    text = json.dumps(table, indent=2, sort_keys=True)
+    if args.output_json:
+        with open(args.output_json, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.write("\n")
+    print(text)
+
+
+if __name__ == "__main__":
+    main()

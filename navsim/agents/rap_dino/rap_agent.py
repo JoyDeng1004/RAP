@@ -615,13 +615,17 @@ class RAPAgent(AbstractAgent):
 
 
     def get_training_callbacks(self):
+        if os.environ.get("RAP_DISABLE_CHECKPOINT", "").strip().lower() in {"1", "true", "yes", "on"}:
+            return []
 
         checkpoint_cb = ModelCheckpoint(
+            dirpath=os.environ.get("RAP_CHECKPOINT_DIR") or None,
             save_last=True,
             save_top_k=3,
-            monitor='val/score',
+            monitor=os.environ.get("RAP_CHECKPOINT_MONITOR", "val/score"),
             filename='{epoch}-{step}',
-            mode="max"
+            mode=os.environ.get("RAP_CHECKPOINT_MODE", "max"),
+            save_on_train_epoch_end=True,
             )
 
         return [checkpoint_cb]

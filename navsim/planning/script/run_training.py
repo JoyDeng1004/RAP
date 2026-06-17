@@ -1,6 +1,15 @@
 from typing import Tuple
 from pathlib import Path
 import logging
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from navsim._compat import patch_torch_pytree
+
+patch_torch_pytree()
 
 import hydra
 from hydra.utils import instantiate
