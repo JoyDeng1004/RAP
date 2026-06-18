@@ -1,6 +1,7 @@
 from typing import Tuple
 from pathlib import Path
 import logging
+import os
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -16,6 +17,7 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
+import wandb
 
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.common.dataclasses import SceneFilter
@@ -31,6 +33,15 @@ logger = logging.getLogger(__name__)
 
 CONFIG_PATH = "config/training"
 CONFIG_NAME = "default_training"
+
+
+def _wandb_init_timeout() -> float:
+    raw_timeout = os.environ.get("WANDB_INIT_TIMEOUT", "300")
+    try:
+        return float(raw_timeout)
+    except ValueError:
+        logger.warning("Invalid WANDB_INIT_TIMEOUT=%r; falling back to 300 seconds", raw_timeout)
+        return 300.0
 
 
 def build_datasets(cfg: DictConfig, agent: AbstractAgent) -> Tuple[Dataset, Dataset]:
@@ -155,27 +166,28 @@ def main(cfg: DictConfig) -> None:
                 split='val'
             )
 
-            train_data_perturbed = CacheOnlyDataset(
-                cache_path=cfg.cache_path_perturbed,
-                feature_builders=agent.get_feature_builders(),
-                target_builders=agent.get_target_builders())
-            N = len(train_data_perturbed)
-            indices = random.sample(range(N), int(0.1*N))
-            print(f'len(perturbed): {len(indices)}')
-            train_data_perturbed = Subset(train_data_perturbed, indices)
+            if not cfg.get("clean_cache_only", False):
+                train_data_perturbed = CacheOnlyDataset(
+                    cache_path=cfg.cache_path_perturbed,
+                    feature_builders=agent.get_feature_builders(),
+                    target_builders=agent.get_target_builders())
+                N = len(train_data_perturbed)
+                indices = random.sample(range(N), int(0.1*N))
+                print(f'len(perturbed): {len(indices)}')
+                train_data_perturbed = Subset(train_data_perturbed, indices)
 
-            train_data_others = CacheOnlyDataset(
-                cache_path=cfg.cache_path_others,
-                feature_builders=agent.get_feature_builders(),
-                target_builders=agent.get_target_builders())
-                
-            train_data_others.score_mask=False
-            N = len(train_data_others)
-            indices = random.sample(range(N), int(0.05*N))
-            print(f'len(others): {len(indices)}')
-            train_data_others = Subset(train_data_others, indices)
+                train_data_others = CacheOnlyDataset(
+                    cache_path=cfg.cache_path_others,
+                    feature_builders=agent.get_feature_builders(),
+                    target_builders=agent.get_target_builders())
+                    
+                train_data_others.score_mask=False
+                N = len(train_data_others)
+                indices = random.sample(range(N), int(0.05*N))
+                print(f'len(others): {len(indices)}')
+                train_data_others = Subset(train_data_others, indices)
 
-            train_data = ConcatDataset([train_data, train_data_perturbed, train_data_others])
+                train_data = ConcatDataset([train_data, train_data_perturbed, train_data_others])
 
     else:
         logger.info("Building SceneLoader")
@@ -188,8 +200,16 @@ def main(cfg: DictConfig) -> None:
     logger.info("Num validation samples: %d", len(val_data))
 
     logger.info("Building Trainer")
-    trainer = pl.Trainer(**cfg.trainer.params, callbacks=agent.get_training_callbacks(), logger=WandbLogger(project="rap", name=cfg.experiment_name, id=cfg.experiment_name),
-            )
+    trainer = pl.Trainer(
+        **cfg.trainer.params,
+        callbacks=agent.get_training_callbacks(),
+        logger=WandbLogger(
+            project="rap",
+            name=cfg.experiment_name,
+            id=cfg.experiment_name,
+            settings=wandb.Settings(init_timeout=_wandb_init_timeout()),
+        ),
+    )
 
     logger.info("Starting Training")
     trainer.fit(
