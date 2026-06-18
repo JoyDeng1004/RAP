@@ -104,6 +104,8 @@ class RAPModel(nn.Module):
         self.scorer = Scorer(config)
         self.domain_classifier = DomainClassifier(config.tf_d_model)
         self.lambda_scheduler = LambdaScheduler(gamma=10.0)
+        self.progress = 0.0
+        self.batch_size = None
         self.b2d=config.b2d
 
     def forward(self, features: Dict[str, torch.Tensor],targets: Dict[str, torch.Tensor],return_score=False) -> Dict[str, torch.Tensor]:
@@ -144,10 +146,14 @@ class RAPModel(nn.Module):
         output["agent_labels"]=agent_labels
         output["bev_feature"]=image_feature[0].permute(2,0,1,3)
 
-        lambda_ = self.lambda_scheduler(self.progress)
+        lambda_ = self.lambda_scheduler(getattr(self, "progress", 0.0))
         feat = image_feature[0][[1]] if image_feature[0].shape[0] > 1 else image_feature[0][:1]
-        feat_grad = feat[:,:,:self.batch_size].detach()          
-        feat_no_grad = feat[:,:,self.batch_size:]   
+        split_batch_size = getattr(self, "batch_size", None)
+        if split_batch_size is None:
+            split_batch_size = batch_size
+        split_batch_size = min(int(split_batch_size), feat.shape[2])
+        feat_grad = feat[:,:,:split_batch_size].detach()
+        feat_no_grad = feat[:,:,split_batch_size:]
         mixed_feat = torch.cat([feat_grad, feat_no_grad], dim=2)
         domain_logits = self.domain_classifier(mixed_feat, lambd=lambda_)  # (B,)
         output["domain_logits"] = domain_logits
