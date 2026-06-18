@@ -45,6 +45,35 @@ def test_positive_shift_converges_lateral_error_monotonically():
     assert err[-1] < err[0]
 
 
+def _assert_forward_coordinate_does_not_fold_back(output):
+    dx = torch.diff(output[..., 0], dim=-1)
+    assert torch.all(dx >= -1e-4), output[..., 0]
+
+
+def test_positive_shift_straight_recovery_does_not_fold_back():
+    traj = _straight_trajectory(batch_size=1, steps=10, speed=5.0)
+
+    out = make_recovery_trajectory(traj, shift_y=torch.tensor([1.0]))
+
+    _assert_forward_coordinate_does_not_fold_back(out)
+
+
+def test_negative_shift_straight_recovery_does_not_fold_back():
+    traj = _straight_trajectory(batch_size=1, steps=10, speed=5.0)
+
+    out = make_recovery_trajectory(traj, shift_y=torch.tensor([-1.0]))
+
+    _assert_forward_coordinate_does_not_fold_back(out)
+
+
+def test_high_speed_straight_recovery_does_not_fold_back():
+    traj = _straight_trajectory(batch_size=2, steps=10, speed=15.0)
+
+    out = make_recovery_trajectory(traj, shift_y=torch.tensor([1.0, -1.0]))
+
+    _assert_forward_coordinate_does_not_fold_back(out)
+
+
 def test_recovery_shape_dtype_and_heading_range():
     traj = _straight_trajectory(batch_size=2, dtype=torch.float64)
 

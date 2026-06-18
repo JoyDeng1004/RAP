@@ -119,8 +119,6 @@ def test_rap_model_forward_passes_features_to_refiner_for_shift_plumbing():
     model.scorer = FakeScorer()
     model.lambda_scheduler = lambda progress: 0.0
     model.domain_classifier = lambda feat, lambd: torch.zeros(feat.shape[2])
-    model.progress = 0.0
-    model.batch_size = 1
 
     features = {
         "ego_status": torch.zeros(1, 1, 11),
