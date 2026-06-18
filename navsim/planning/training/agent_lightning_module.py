@@ -92,6 +92,8 @@ class AgentLightningModule(pl.LightningModule):
         features, targets = batch
         features, targets = self._prepare_recovery_batch(features, targets)
         batch_size = features['camera_valid'].shape[0]
+        self.agent._rap_model.progress = (self.current_epoch + 1) / 20
+        self.agent._rap_model.batch_size = batch_size
         #features['camera_feature'] = features.pop('rendered_camera_feature')
         prediction = self.agent.forward(features,targets)
         loss_dict = self.agent.compute_loss(features, targets, prediction)
@@ -132,7 +134,7 @@ class AgentLightningModule(pl.LightningModule):
             loss_dict['rater_feedback_score'] = torch.tensor(rater_feedback_metrics['rater_feedback_score']).mean().to(self.device)
 
         if self.global_step % 1000 == 0 and self.global_rank == 0:
-            visualize_idx = 0
+            visualize_idx = 0       # 只记录batch里的第一个sample
 
             img_mean = [123.675, 116.28, 103.53]
             img_std  = [58.395, 57.12, 57.375]
@@ -175,7 +177,7 @@ class AgentLightningModule(pl.LightningModule):
 
         if type(loss_dict) is dict:
             for key,value in loss_dict.items():
-                self.log(f"{logging_prefix}/"+key, value, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+                self.log(f"{logging_prefix}/"+key, value, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
             return loss_dict["loss"]
         else:
             return loss_dict
@@ -307,7 +309,7 @@ class AgentLightningModule(pl.LightningModule):
                 
         for k, v in loss_dict.items():
             if v is not None:
-                self.log(f"{logging_prefix}/{k}", v, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=len(batch[0]) if k not in ['ade_real', 'loss_render'] else int(real_valid_mask.sum()))
+                self.log(f"{logging_prefix}/{k}", v, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=len(batch[0]) if k not in ['ade_real', 'loss_render'] else int(real_valid_mask.sum()))
         
         if self.global_step % 10 == 0 and self.global_rank == 0 and False:
             visualize_idx = 0
