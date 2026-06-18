@@ -758,6 +758,12 @@ def _summarize(rows: List[Dict[str, object]]) -> Dict[str, float]:
         "fde",
         "ahe",
         "fhe",
+        "selected_ade",
+        "selected_fde",
+        "best_proposal_ade",
+        "best_proposal_fde",
+        "proposal_selection_ade_gap",
+        "proposal_selection_fde_gap",
         "cv_ade",
         "cv_fde",
         "beats_cv",
@@ -835,6 +841,12 @@ def main() -> None:
         "fde",
         "ahe",
         "fhe",
+        "selected_ade",
+        "selected_fde",
+        "best_proposal_ade",
+        "best_proposal_fde",
+        "proposal_selection_ade_gap",
+        "proposal_selection_fde_gap",
         "cv_ade",
         "cv_fde",
         "beats_cv",
@@ -853,6 +865,7 @@ def main() -> None:
         "vis_path",
         "vis_warning",
         "pred_trajectory",
+        "best_proposal_trajectory",
         "target_trajectory",
     ]
 
@@ -905,9 +918,15 @@ def main() -> None:
 
                 model.batch_size = features["ego_status"].shape[0]
                 with torch.no_grad():
-                    prediction = model(features, targets=None)
-                pred = prediction["trajectory"].squeeze(0).detach().cpu().numpy()[: args.num_poses]
-                top_score = float(prediction["pdm_score"].max().detach().cpu().item())
+                    prediction = model(features, targets=None, return_score=True)
+                proposals = prediction["trajectory"].squeeze(0).detach().cpu().numpy()[:, : args.num_poses]
+                scores = prediction["score"].squeeze(0).detach().cpu().numpy()
+                top_idx = int(np.argmax(scores))
+                pred = proposals[top_idx]
+                top_score = float(scores[top_idx])
+                proposal_ade = np.linalg.norm(proposals[:, :, :2] - target[None, :, :2], axis=-1).mean(axis=-1)
+                best_idx = int(np.argmin(proposal_ade))
+                best_proposal = proposals[best_idx]
 
                 vis_warnings: List[str] = []
                 original_frame, original_reference, original_warning = _load_original_context(
@@ -920,13 +939,16 @@ def main() -> None:
                 if original_warning:
                     vis_warnings.append(original_warning)
 
-                pred_original = target_original = cv_original = None
+                pred_original = best_proposal_original = target_original = cv_original = None
                 if original_frame is not None:
                     try:
                         perturbed_pose = _frame_pose(current_frame)
                         original_pose = _frame_pose(original_frame)
                         pred_original = _transform_trajectory_between_ego_frames(
                             pred, perturbed_pose, original_pose
+                        )
+                        best_proposal_original = _transform_trajectory_between_ego_frames(
+                            best_proposal, perturbed_pose, original_pose
                         )
                         target_original = _transform_trajectory_between_ego_frames(
                             target, perturbed_pose, original_pose
@@ -948,16 +970,24 @@ def main() -> None:
                     vis_warnings.append(recovery_warning)
 
                 metric_row = _metrics(pred, target, cv)
+                best_metric_row = _metrics(best_proposal, target, cv)
                 metric_row.update(
                     {
                         "token": current_frame["token"],
                         "log_name": current_frame["log_name"],
                         "pkl_path": str(pkl_path),
+                        "selected_ade": metric_row["ade"],
+                        "selected_fde": metric_row["fde"],
+                        "best_proposal_ade": best_metric_row["ade"],
+                        "best_proposal_fde": best_metric_row["fde"],
+                        "proposal_selection_ade_gap": metric_row["ade"] - best_metric_row["ade"],
+                        "proposal_selection_fde_gap": metric_row["fde"] - best_metric_row["fde"],
                         **recovery_metrics,
                         "top_score": top_score,
                         "vis_path": "",
                         "vis_warning": "",
                         "pred_trajectory": _to_jsonable_trajectory(pred),
+                        "best_proposal_trajectory": _to_jsonable_trajectory(best_proposal),
                         "target_trajectory": _to_jsonable_trajectory(target),
                     }
                 )
