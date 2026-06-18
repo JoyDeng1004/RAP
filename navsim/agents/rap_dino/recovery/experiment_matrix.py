@@ -38,11 +38,21 @@ def build_training_command(
     batch_size: int = 1,
     max_epochs: int = 1,
     python: str = "python",
+    wandb_mode: str = "disabled",
+    wandb_init_timeout: int = 300,
+    experiment_prefix: str = "ref2d",
+    clean_cache: bool = False,
 ) -> List[str]:
+    if wandb_mode not in {"online", "offline", "disabled"}:
+        raise ValueError(f"Unsupported wandb_mode={wandb_mode!r}")
     checkpoint_dir = str(Path(output_dir) / "checkpoints")
+    experiment_name = f"{experiment_prefix}_{cell.name}"
+    if smoke:
+        experiment_name = f"{experiment_name}_smoke"
     command = [
         "env",
-        "WANDB_MODE=disabled",
+        f"WANDB_MODE={wandb_mode}",
+        f"WANDB_INIT_TIMEOUT={wandb_init_timeout}",
         "RAP_DINO_OFFLINE_INIT=1",
         "MPLCONFIGDIR=/gs/bs/tga-RLA/qdeng/RAP/tmp",
         "RAP_CHECKPOINT_MONITOR=train/loss",
@@ -55,14 +65,13 @@ def build_training_command(
         "train_test_split=navtrain",
         "use_cache_without_dataset=true",
         "force_cache_computation=false",
+        f"clean_cache_only={str(clean_cache).lower()}",
         f"cache_path={cache_path}",
-        f"cache_path_perturbed={cache_path_perturbed or cache_path}",
-        f"cache_path_others={cache_path_others or cache_path}",
         f"agent.checkpoint_path={checkpoint_path}",
         f"++agent.config.train_metric_cache_path={metric_cache_path}",
         "agent.config.trajectory_sampling.time_horizon=5",
         f"seed={seed}",
-        f"experiment_name=ref2d_{cell.name}_smoke" if smoke else f"experiment_name=ref2d_{cell.name}",
+        f"experiment_name={experiment_name}",
         f"output_dir={output_dir}",
         f"trainer.params.max_epochs={max_epochs}",
         f"trainer.params.limit_train_batches={train_batches}",
@@ -80,6 +89,13 @@ def build_training_command(
         "dataloader.params.prefetch_factor=null",
         "dataloader.params.drop_last=false",
     ]
+    if not clean_cache:
+        command.extend(
+            [
+                f"cache_path_perturbed={cache_path_perturbed or cache_path}",
+                f"cache_path_others={cache_path_others or cache_path}",
+            ]
+        )
     if smoke:
         command.insert(4, "RAP_DISABLE_CHECKPOINT=1")
     return command
@@ -106,6 +122,10 @@ def iter_commands(args: argparse.Namespace) -> Iterable[List[str]]:
             batch_size=args.batch_size,
             max_epochs=args.max_epochs,
             python=args.python,
+            wandb_mode=args.wandb_mode,
+            wandb_init_timeout=args.wandb_init_timeout,
+            experiment_prefix=args.experiment_prefix,
+            clean_cache=args.clean_cache,
         )
 
 
@@ -125,6 +145,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--max-epochs", type=int, default=1)
     parser.add_argument("--python", default="python")
+    parser.add_argument("--wandb-mode", choices=["online", "offline", "disabled"], default="disabled")
+    parser.add_argument("--wandb-init-timeout", type=int, default=300)
+    parser.add_argument("--experiment-prefix", default="ref2d")
+    parser.add_argument("--clean-cache", action="store_true", help="Use only cache_path; skip perturbed/others cache mixing.")
     parser.add_argument("--run", action="store_true", help="Run commands instead of printing them.")
     return parser.parse_args()
 
