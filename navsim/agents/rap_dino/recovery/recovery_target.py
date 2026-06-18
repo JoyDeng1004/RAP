@@ -101,6 +101,27 @@ def _enforce_monotonic_lateral_recovery(
     return out
 
 
+def _enforce_forward_progress(output: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
+    """Avoid recovery labels that move backward when the reference moves forward."""
+    if output.shape[1] <= 1:
+        return output
+
+    ref_forward = torch.all(torch.diff(reference[..., 0], dim=1) >= -1e-4, dim=1)
+    if not torch.any(ref_forward):
+        return output
+
+    out = output.clone()
+    forward_x = torch.cummax(out[ref_forward, :, 0], dim=1).values
+    out[ref_forward, :, 0] = forward_x
+
+    prev_xy = torch.cat([torch.zeros_like(out[:, :1, :2]), out[:, :-1, :2]], dim=1)
+    delta = out[..., :2] - prev_xy
+    heading = torch.atan2(delta[..., 1], torch.clamp(delta[..., 0], min=1e-6))
+    moving = torch.linalg.norm(delta, dim=-1) > 1e-6
+    out[..., 2] = torch.where(moving, heading, out[..., 2])
+    return out
+
+
 def make_recovery_trajectory(
     trajectory: torch.Tensor,
     shift_y: Union[torch.Tensor, float],
@@ -158,21 +179,37 @@ def make_recovery_trajectory(
     sampling_time = TimePoint(int(dt * 1e6))
 
     output = np.zeros((batch_size, steps, 3), dtype=np.float64)
+    target_indices = np.zeros(batch_size, dtype=np.int64)
     for step in range(steps):
         commands = np.zeros((batch_size, len(DynamicStateIndex)), dtype=np.float64)
         for batch_idx in range(batch_size):
             xy = states[batch_idx, StateIndex.POINT]
             future = traj_np[batch_idx, :, :2]
-            distances = np.linalg.norm(future - xy[None], axis=-1)
-            candidates = np.flatnonzero(distances >= lookahead_np[batch_idx])
-            target_idx = int(candidates[0]) if len(candidates) else steps - 1
-            target_xy = future[target_idx]
-
-            dx = target_xy[0] - xy[0]
-            dy = target_xy[1] - xy[1]
             heading = states[batch_idx, StateIndex.HEADING]
-            local_x = math.cos(heading) * dx + math.sin(heading) * dy
-            local_y = -math.sin(heading) * dx + math.cos(heading) * dy
+
+            delta = future - xy[None]
+            local_x_all = math.cos(heading) * delta[:, 0] + math.sin(heading) * delta[:, 1]
+            local_y_all = -math.sin(heading) * delta[:, 0] + math.cos(heading) * delta[:, 1]
+            distances = np.linalg.norm(delta, axis=-1)
+
+            indices = np.arange(steps)
+            ahead = (indices >= target_indices[batch_idx]) & (local_x_all > 1e-6)
+            candidates = np.flatnonzero(ahead & (distances >= lookahead_np[batch_idx]))
+            if len(candidates):
+                target_idx = int(candidates[0])
+            else:
+                ahead_candidates = np.flatnonzero(ahead)
+                if len(ahead_candidates):
+                    target_idx = int(ahead_candidates[-1])
+                else:
+                    commands[batch_idx, DynamicStateIndex.STEERING_RATE] = (
+                        -states[batch_idx, StateIndex.STEERING_ANGLE]
+                    ) / dt
+                    continue
+            target_indices[batch_idx] = max(target_indices[batch_idx], target_idx)
+
+            local_x = local_x_all[target_idx]
+            local_y = local_y_all[target_idx]
             distance = max(math.hypot(local_x, local_y), 1e-6)
             alpha = math.atan2(local_y, max(local_x, 1e-6))
             desired_steer = math.atan2(2.0 * wheel_base * math.sin(alpha), distance)
@@ -188,5 +225,6 @@ def make_recovery_trajectory(
 
     out = torch.as_tensor(output, device=device, dtype=dtype)
     out = _enforce_monotonic_lateral_recovery(out, trajectory, shift)
+    out = _enforce_forward_progress(out, trajectory)
     out[..., 2] = _wrap_heading(out[..., 2])
     return out
