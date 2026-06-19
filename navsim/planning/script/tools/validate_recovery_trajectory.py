@@ -19,7 +19,7 @@ import pickle
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(REPO_ROOT) not in sys.path:
@@ -348,7 +348,8 @@ def _project_trajectory_to_image(
     trajectory: np.ndarray,
     cam: Dict,
     image_shape: Tuple[int, int],
-) -> Tuple[np.ndarray, np.ndarray]:
+    return_depth: bool = False,
+) -> Union[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     lidar2img = _lidar_to_image_matrix(cam)
     xyz1 = np.column_stack(
         [
@@ -369,7 +370,17 @@ def _project_trajectory_to_image(
         & (uv[:, 1] >= 0)
         & (uv[:, 1] < height)
     )
+    if return_depth:
+        return uv, valid, depth
     return uv, valid
+
+
+def _prepend_trajectory_anchor(trajectory: np.ndarray, anchor: Optional[np.ndarray]) -> np.ndarray:
+    """Return a visualization-only trajectory connected to an ego anchor pose."""
+    if anchor is None:
+        return trajectory
+    anchor = np.asarray(anchor, dtype=trajectory.dtype).reshape(1, 3)
+    return np.vstack([anchor, trajectory])
 
 
 def _draw_projected_trajectory(
@@ -381,10 +392,33 @@ def _draw_projected_trajectory(
     label: str,
     linestyle: str = "-",
 ) -> Optional[str]:
-    uv, valid = _project_trajectory_to_image(trajectory, cam, image_shape)
+    uv, valid, depth = _project_trajectory_to_image(trajectory, cam, image_shape, return_depth=True)
     if not valid.any():
         return f"{label} outside image"
-    ax.plot(uv[valid, 0], uv[valid, 1], color=color, linestyle=linestyle, linewidth=2, label=label)
+
+    # Use all points that are in front of the camera for the line so an ego
+    # anchor just outside the image still draws a clipped segment to the first
+    # visible future point. Markers still use in-image points only.
+    line_mask = (depth > 1e-5) & np.isfinite(uv).all(axis=1)
+    line_indices = np.flatnonzero(line_mask)
+    drew_label = False
+    if line_indices.size:
+        # Avoid connecting across invalid/behind-camera gaps.
+        split_at = np.where(np.diff(line_indices) > 1)[0] + 1
+        for segment in np.split(line_indices, split_at):
+            if len(segment) < 2:
+                continue
+            ax.plot(
+                uv[segment, 0],
+                uv[segment, 1],
+                color=color,
+                linestyle=linestyle,
+                linewidth=2,
+                label=label if not drew_label else None,
+            )
+            drew_label = True
+    if not drew_label:
+        ax.plot(uv[valid, 0], uv[valid, 1], color=color, linestyle=linestyle, linewidth=2, label=label)
     first = np.flatnonzero(valid)[0]
     last = np.flatnonzero(valid)[-1]
     ax.scatter(uv[first, 0], uv[first, 1], color=color, marker="o", s=36)
@@ -427,6 +461,9 @@ def _draw_panel(
                 drew_trajectory = True
         if drew_trajectory:
             ax.legend(loc="lower left", fontsize=8)
+    height, width = image.shape[:2]
+    ax.set_xlim(0, width)
+    ax.set_ylim(height, 0)
     return warnings
 
 
@@ -556,13 +593,7 @@ def _draw_bev_panel(
         margin = 5.0
         ax.set_xlim(float(xy[:, 0].min() - margin), float(xy[:, 0].max() + margin))
         ax.set_ylim(float(xy[:, 1].min() - margin), float(xy[:, 1].max() + margin))
-    ax.legend(
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.18),
-        ncol=2,
-        fontsize=7,
-        framealpha=0.85,
-    )
+    ax.legend(loc="lower right", ncol=1, fontsize=7, framealpha=0.85)
     return warnings
 
 
@@ -603,6 +634,7 @@ def _save_visualization(
     original_cam = original_frame["cams"]["CAM_F0"] if original_frame is not None else None
     perturbed_cam = current_frame["cams"]["CAM_F0"]
     perturbed_pose_in_original = None
+    original_pose_in_perturbed = None
     if original_frame is not None:
         try:
             perturbed_pose_in_original = _transform_trajectory_between_ego_frames(
@@ -610,27 +642,35 @@ def _save_visualization(
                 _frame_pose(current_frame),
                 _frame_pose(original_frame),
             )[0]
+            original_pose_in_perturbed = _transform_trajectory_between_ego_frames(
+                np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
+                _frame_pose(original_frame),
+                _frame_pose(current_frame),
+            )[0]
         except Exception as transform_exc:
             warnings.append(f"frame transform unavailable: {repr(transform_exc)}")
 
     original_trajs = None
     if pred_original is not None and target_original is not None and cv_original is not None:
+        original_ego_anchor = np.array([0.0, 0.0, 0.0], dtype=np.float32)
         original_trajs = [
-            ("GT recovery", target_original, "lime", "-"),
-            ("RAP pred", pred_original, "red", "-"),
-            ("CV baseline", cv_original, "dodgerblue", "--"),
+            ("GT recovery", _prepend_trajectory_anchor(target_original, original_ego_anchor), "lime", "-"),
+            ("RAP pred", _prepend_trajectory_anchor(pred_original, perturbed_pose_in_original), "red", "-"),
+            ("CV baseline", _prepend_trajectory_anchor(cv_original, perturbed_pose_in_original), "dodgerblue", "--"),
         ]
     ego_motion_text = _format_ego_motion_text(original_frame, current_frame)
     perturbation_text = _format_perturbation_text(perturbed_pose_in_original)
     bev_text = f"{perturbation_text}\n{ego_motion_text}"
 
+    perturbed_ego_anchor = np.array([0.0, 0.0, 0.0], dtype=np.float32)
     perturbed_trajs = [
-        ("GT recovery", target, "lime", "-"),
-        ("RAP pred", pred, "red", "-"),
-        ("CV baseline", cv, "dodgerblue", "--"),
+        ("GT recovery", _prepend_trajectory_anchor(target, original_pose_in_perturbed), "lime", "-"),
+        ("RAP pred", _prepend_trajectory_anchor(pred, perturbed_ego_anchor), "red", "-"),
+        ("CV baseline", _prepend_trajectory_anchor(cv, perturbed_ego_anchor), "dodgerblue", "--"),
     ]
 
-    fig, axes = plt.subplots(1, 4, figsize=(24, 6))
+    fig, axes = plt.subplots(2, 2, figsize=(18, 12))
+    axes = axes.ravel()
     suptitle = (
         f"token={metric_row['token']} | log={metric_row['log_name']}\n"
         f"{perturbation_text} | "
@@ -685,7 +725,7 @@ def _save_visualization(
             f"original_camera={original_camera_path}\noriginal_raster={original_raster_path}\nperturbed_raster={perturbed_raster_path}\n",
             fontsize=7,
         )
-    fig.tight_layout()
+    fig.tight_layout(rect=(0.0, 0.05 if vis_debug else 0.0, 1.0, 0.95))
     vis_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(vis_path, dpi=150)
     plt.close(fig)

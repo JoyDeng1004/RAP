@@ -4,7 +4,7 @@ import math
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
+from PIL import Image, ImageChops, ImageDraw, ImageFont, UnidentifiedImageError
 
 
 DEFAULT_INPUT_DIR = Path("/gs/bs/tga-RLA/qdeng/RAP/outputs/ref2d_eval_e10")
@@ -16,7 +16,12 @@ DEFAULT_SUBDIRS = (
     "offset_recovery",
 )
 ALLOWED_SUBDIRS = set(DEFAULT_SUBDIRS)
-DEFAULT_CROP = (175, 0, 145, 0)  # top, right, bottom, left
+DEFAULT_CROP = (0, 0, 0, 0)  # top, right, bottom, left
+DEFAULT_TRIM_PADDING = 18
+DEFAULT_TRIM_THRESHOLD = 8
+DEFAULT_MAX_PANEL_WIDTH = 1800
+DEFAULT_MAX_PANEL_HEIGHT = 1200
+DEFAULT_LABEL_FONT_SIZE = 44
 GRID_GAP = 28
 OUTER_PADDING = 28
 PANEL_PADDING = 8
@@ -61,14 +66,64 @@ def parse_args():
         metavar=("TOP", "RIGHT", "BOTTOM", "LEFT"),
         default=list(DEFAULT_CROP),
         help=(
-            "Pixels cropped from each source PNG before layout. "
+            "Fixed pixels cropped from each source PNG before auto-trim/layout. "
             f"Default: {' '.join(map(str, DEFAULT_CROP))}"
         ),
+    )
+    parser.add_argument(
+        "--no-auto-trim",
+        dest="auto_trim",
+        action="store_false",
+        help="Disable automatic white-margin trimming around each source PNG.",
+    )
+    parser.set_defaults(auto_trim=True)
+    parser.add_argument(
+        "--trim-padding",
+        type=int,
+        default=DEFAULT_TRIM_PADDING,
+        help=f"Pixels kept around the auto-trim bounding box. Default: {DEFAULT_TRIM_PADDING}",
+    )
+    parser.add_argument(
+        "--trim-threshold",
+        type=int,
+        default=DEFAULT_TRIM_THRESHOLD,
+        help=f"RGB difference threshold used by auto-trim. Default: {DEFAULT_TRIM_THRESHOLD}",
+    )
+    parser.add_argument(
+        "--max-panel-width",
+        type=int,
+        default=DEFAULT_MAX_PANEL_WIDTH,
+        help=(
+            "Resize each source PNG to this maximum width before integration. "
+            "Use <=0 to disable. "
+            f"Default: {DEFAULT_MAX_PANEL_WIDTH}"
+        ),
+    )
+    parser.add_argument(
+        "--max-panel-height",
+        type=int,
+        default=DEFAULT_MAX_PANEL_HEIGHT,
+        help=(
+            "Resize each source PNG to this maximum height before integration. "
+            "Use <=0 to disable. "
+            f"Default: {DEFAULT_MAX_PANEL_HEIGHT}"
+        ),
+    )
+    parser.add_argument(
+        "--label-font-size",
+        type=int,
+        default=DEFAULT_LABEL_FONT_SIZE,
+        help=f"Font size for the cell label overlay. Default: {DEFAULT_LABEL_FONT_SIZE}",
     )
     parser.add_argument(
         "--include-missing",
         action="store_true",
         help="Also output tokens that are missing from one or more subfolders.",
+    )
+    parser.add_argument(
+        "--require-subdirs",
+        action="store_true",
+        help="Fail if any requested evaluation subfolder is missing. By default missing subfolders are skipped.",
     )
     return parser.parse_args()
 
@@ -90,7 +145,7 @@ def resolve_image_dir(subdir):
     return subdir
 
 
-def collect_images(input_dir, subdirs):
+def collect_images(input_dir, subdirs, require_subdirs):
     image_map = {}
     for name in subdirs:
         if name not in ALLOWED_SUBDIRS:
@@ -100,7 +155,10 @@ def collect_images(input_dir, subdirs):
         subdir = input_dir / name
         image_dir = resolve_image_dir(subdir)
         if not image_dir.is_dir():
-            raise FileNotFoundError(f"Missing image directory: {image_dir}")
+            if require_subdirs:
+                raise FileNotFoundError(f"Missing image directory: {image_dir}")
+            print(f"warning: missing image directory, skipped: {image_dir}", file=sys.stderr)
+            continue
 
         token_to_path = {}
         for png_path in sorted(image_dir.glob("*.png")):
@@ -135,6 +193,49 @@ def crop_image(image, crop):
     return image.crop(crop_box)
 
 
+def auto_trim_image(image, padding, threshold):
+    if padding < 0:
+        raise ValueError(f"Trim padding must be non-negative: {padding}")
+    if threshold < 0:
+        raise ValueError(f"Trim threshold must be non-negative: {threshold}")
+
+    rgb = image.convert("RGB")
+    bg = Image.new("RGB", rgb.size, BG_COLOR)
+    diff = ImageChops.difference(rgb, bg).convert("L")
+    if threshold > 0:
+        diff = diff.point(lambda value: 255 if value > threshold else 0)
+    bbox = diff.getbbox()
+    if bbox is None:
+        return image
+
+    left, top, right, bottom = bbox
+    left = max(0, left - padding)
+    top = max(0, top - padding)
+    right = min(image.width, right + padding)
+    bottom = min(image.height, bottom + padding)
+    return image.crop((left, top, right, bottom))
+
+
+def resize_to_max(image, max_width, max_height):
+    limits = []
+    if max_width and max_width > 0:
+        limits.append(max_width / image.width)
+    if max_height and max_height > 0:
+        limits.append(max_height / image.height)
+    if not limits:
+        return image
+
+    scale = min(limits)
+    if scale >= 1.0:
+        return image
+
+    resized = (
+        max(1, int(round(image.width * scale))),
+        max(1, int(round(image.height * scale))),
+    )
+    return image.resize(resized, Image.Resampling.LANCZOS)
+
+
 def draw_label(image, label, font):
     overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -152,6 +253,14 @@ def draw_label(image, label, font):
         draw.rectangle((x0, y0, x1, y1), fill=LABEL_BG)
     draw.text((x0 + LABEL_PAD_X, y0 + LABEL_PAD_Y), label, fill=LABEL_FG, font=font)
     return Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB")
+
+
+def prepare_image(image, label, crop, auto_trim, trim_padding, trim_threshold, max_panel_width, max_panel_height, font):
+    image = crop_image(image.convert("RGB"), crop)
+    if auto_trim:
+        image = auto_trim_image(image, trim_padding, trim_threshold)
+    image = resize_to_max(image, max_panel_width, max_panel_height)
+    return draw_label(image, label, font)
 
 
 def draw_panel(draw, box):
@@ -184,7 +293,18 @@ def draw_centered_message(draw, box, message, font, fill):
     )
 
 
-def make_canvas(token, subdirs, image_map, crop, font):
+def make_canvas(
+    token,
+    subdirs,
+    image_map,
+    crop,
+    auto_trim,
+    trim_padding,
+    trim_threshold,
+    max_panel_width,
+    max_panel_height,
+    font,
+):
     opened = {}
     invalid = set()
     for name in subdirs:
@@ -192,8 +312,17 @@ def make_canvas(token, subdirs, image_map, crop, font):
         if png_path is not None:
             try:
                 with Image.open(png_path) as image:
-                    cleaned = crop_image(image.convert("RGB"), crop)
-                    opened[name] = draw_label(cleaned, name, font)
+                    opened[name] = prepare_image(
+                        image,
+                        name,
+                        crop,
+                        auto_trim,
+                        trim_padding,
+                        trim_threshold,
+                        max_panel_width,
+                        max_panel_height,
+                        font,
+                    )
             except (UnidentifiedImageError, OSError) as exc:
                 invalid.add(name)
                 print(f"warning: cannot read {png_path}: {exc}", file=sys.stderr)
@@ -242,13 +371,27 @@ def make_canvas(token, subdirs, image_map, crop, font):
 
 def main():
     args = parse_args()
-    image_map = collect_images(args.input_dir, args.subdirs)
+    image_map = collect_images(args.input_dir, args.subdirs, args.require_subdirs)
+    subdirs = [name for name in args.subdirs if name in image_map]
+    if not subdirs:
+        raise RuntimeError(f"No image subfolders found under {args.input_dir}")
     tokens = tokens_to_merge(image_map, args.include_missing)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    font = load_font(54)
+    font = load_font(args.label_font_size)
     for token in tokens:
-        canvas = make_canvas(token, args.subdirs, image_map, tuple(args.crop), font)
+        canvas = make_canvas(
+            token,
+            subdirs,
+            image_map,
+            tuple(args.crop),
+            args.auto_trim,
+            args.trim_padding,
+            args.trim_threshold,
+            args.max_panel_width,
+            args.max_panel_height,
+            font,
+        )
         if canvas is not None:
             canvas.save(args.output_dir / f"{token}.png")
 
