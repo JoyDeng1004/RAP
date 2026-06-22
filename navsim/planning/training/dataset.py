@@ -162,6 +162,7 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
             data_dict_path = token_path / (builder.get_unique_name() + ".gz")
             data_dict = load_feature_target_from_pickle(data_dict_path)
             targets.update(data_dict)
+        targets["log_name"] = token_path.parent.name
         if self.score_mask:
             targets['score_mask']=torch.tensor(True)
         else:
@@ -320,6 +321,7 @@ class Dataset(torch.utils.data.Dataset):
             data_dict_path = token_path / (builder.get_unique_name() + ".gz")
             data_dict = load_feature_target_from_pickle(data_dict_path)
             targets.update(data_dict)
+        targets["log_name"] = token_path.parent.name
 
         return (features, targets)
 

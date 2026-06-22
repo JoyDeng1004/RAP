@@ -531,6 +531,17 @@ class RAPAgent(AbstractAgent):
         # min_loss1 = min_loss_list[1]
         # inter_loss1 = inter_loss_list[1]
 
+        recovery_aux_trajectory_loss = zero
+        if getattr(config, "recovery_aux_enabled", False) and "recovery_aux_trajectory" in targets:
+            recovery_aux_target = targets["recovery_aux_trajectory"]
+            for proposals_i in proposal_list:
+                aux_min_loss = torch.linalg.norm(
+                    proposals_i - recovery_aux_target[:, None], dim=-1, ord=1
+                ).mean(-1).amin(1).mean()
+                recovery_aux_trajectory_loss = (
+                    config.prev_weight * recovery_aux_trajectory_loss + aux_min_loss
+                )
+
 
         if pred["agent_states"] is not None and (config.agent_class_weight != 0 or config.agent_box_weight != 0):
             agent_class_loss, agent_box_loss = _agent_loss(targets, pred, config)
@@ -553,6 +564,7 @@ class RAPAgent(AbstractAgent):
                 + config.agent_class_weight * agent_class_loss
                 + config.agent_box_weight * agent_box_loss
                 + config.bev_semantic_weight * bev_semantic_loss
+                + getattr(config, "recovery_aux_weight", 0.0) * recovery_aux_trajectory_loss
 
         )
             
@@ -575,6 +587,8 @@ class RAPAgent(AbstractAgent):
             "score": score,
             "best_score": best_score
         }
+        if getattr(config, "recovery_aux_enabled", False):
+            loss_dict["recovery_aux_trajectory_loss"] = recovery_aux_trajectory_loss
 
         return loss_dict
 

@@ -2,6 +2,7 @@ import pytorch_lightning as pl
 
 from torch import Tensor
 from typing import Dict, Tuple
+import hashlib
 import torch
 from navsim.agents.abstract_agent import AbstractAgent
 import torch.nn.functional as F
@@ -40,14 +41,49 @@ class AgentLightningModule(pl.LightningModule):
         config = self.agent._config
         trajectory = targets["trajectory"]
         lo, hi = config.ref2d_aug_y_range
-        shift_y = torch.empty(
-            trajectory.shape[0],
-            device=trajectory.device,
-            dtype=trajectory.dtype,
-        ).uniform_(float(lo), float(hi))
-        if config.ref2d_aug_prob < 1.0:
-            keep = torch.rand_like(shift_y) < float(config.ref2d_aug_prob)
-            shift_y = torch.where(keep, shift_y, torch.zeros_like(shift_y))
+        mode = getattr(config, "ref2d_shift_sampling_mode", "random")
+        if mode == "random":
+            shift_y = torch.empty(
+                trajectory.shape[0],
+                device=trajectory.device,
+                dtype=trajectory.dtype,
+            ).uniform_(float(lo), float(hi))
+            if config.ref2d_aug_prob < 1.0:
+                keep = torch.rand_like(shift_y) < float(config.ref2d_aug_prob)
+                shift_y = torch.where(keep, shift_y, torch.zeros_like(shift_y))
+            return shift_y
+        if mode != "log_hash":
+            raise ValueError(f"Unsupported ref2d_shift_sampling_mode={mode!r}")
+
+        log_names = targets.get("log_name")
+        if log_names is None:
+            log_names = targets.get("token")
+        if isinstance(log_names, str):
+            log_names = [log_names] * trajectory.shape[0]
+        elif log_names is None:
+            log_names = [f"sample_{idx}" for idx in range(trajectory.shape[0])]
+        else:
+            log_names = list(log_names)
+        if len(log_names) != trajectory.shape[0]:
+            raise ValueError(
+                f"log_hash shift requires one log_name per sample, got {len(log_names)} for batch {trajectory.shape[0]}"
+            )
+
+        seed = int(getattr(config, "ref2d_shift_hash_seed", 0))
+        values = []
+        for log_name in log_names:
+            key = f"{seed}:{log_name}".encode("utf-8")
+            digest = hashlib.sha256(key).digest()
+            unit = int.from_bytes(digest[:8], byteorder="big", signed=False) / float(2**64 - 1)
+            value = float(lo) + unit * (float(hi) - float(lo))
+            if config.ref2d_aug_prob < 1.0:
+                keep_key = f"{seed}:{log_name}:keep".encode("utf-8")
+                keep_digest = hashlib.sha256(keep_key).digest()
+                keep_unit = int.from_bytes(keep_digest[:8], byteorder="big", signed=False) / float(2**64 - 1)
+                if keep_unit >= float(config.ref2d_aug_prob):
+                    value = 0.0
+            values.append(value)
+        shift_y = torch.tensor(values, device=trajectory.device, dtype=trajectory.dtype)
         return shift_y
 
     def _prepare_recovery_batch(
@@ -56,7 +92,7 @@ class AgentLightningModule(pl.LightningModule):
         targets: Dict[str, Tensor],
     ) -> Tuple[Dict[str, Tensor], Dict[str, Tensor]]:
         config = self.agent._config
-        if not (config.ref2d_observation_aug or config.recovery_target_enabled):
+        if not (config.ref2d_observation_aug or config.recovery_target_enabled or getattr(config, "recovery_aux_enabled", False)):
             return features, targets
 
         features = dict(features)
@@ -79,6 +115,12 @@ class AgentLightningModule(pl.LightningModule):
                 targets["trajectory"].shape[0],
                 device=targets["trajectory"].device,
                 dtype=torch.bool,
+            )
+        if getattr(config, "recovery_aux_enabled", False):
+            targets["recovery_aux_trajectory"] = make_recovery_trajectory(
+                targets["trajectory"],
+                shift_y=shift_y,
+                dt=config.trajectory_sampling.interval_length,
             )
         return features, targets
 

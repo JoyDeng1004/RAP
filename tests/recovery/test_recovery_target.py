@@ -24,7 +24,11 @@ def test_rap_config_recovery_defaults_preserve_old_behavior():
     assert config.ref2d_aug_scope == "sca"
     assert config.ref2d_aug_y_range == (-1.0, 1.0)
     assert config.ref2d_aug_prob == 1.0
+    assert config.ref2d_shift_sampling_mode == "random"
+    assert config.ref2d_shift_hash_seed == 0
     assert config.recovery_target_enabled is False
+    assert config.recovery_aux_enabled is False
+    assert config.recovery_aux_weight == 0.0
 
 
 def test_zero_shift_returns_input_exactly():

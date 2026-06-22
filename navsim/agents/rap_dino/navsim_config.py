@@ -30,7 +30,11 @@ class RAPConfig:
     ref2d_aug_scope: str = "sca"
     ref2d_aug_y_range: Tuple[float, float] = (-1.0, 1.0)
     ref2d_aug_prob: float = 1.0
+    ref2d_shift_sampling_mode: str = "random"
+    ref2d_shift_hash_seed: int = 0
     recovery_target_enabled: bool = False
+    recovery_aux_enabled: bool = False
+    recovery_aux_weight: float = 0.0
 
     bev_map: bool=False
     bev_agent: bool=False
