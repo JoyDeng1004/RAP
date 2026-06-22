@@ -5,21 +5,66 @@ import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Tuple
 
 
 @dataclass(frozen=True)
 class ExperimentCell:
     name: str
     agent: str
+    overrides: Tuple[str, ...] = ()
 
 
 EXPERIMENT_CELLS = [
     ExperimentCell("baseline", "rap_ref2d_baseline"),
-    ExperimentCell("recovery_only", "rap_ref2d_recovery_only"),
-    ExperimentCell("shift_only", "rap_ref2d_shift_only"),
-    ExperimentCell("offset_recovery", "rap_ref2d_offset_recovery"),
+    ExperimentCell(
+        "shift_only_log",
+        "rap_ref2d_shift_only_log",
+        ("++agent.config.ref2d_shift_sampling_mode=log_hash",),
+    ),
+    ExperimentCell(
+        "recovery_only_log",
+        "rap_ref2d_recovery_only_log",
+        ("++agent.config.ref2d_shift_sampling_mode=log_hash",),
+    ),
+    ExperimentCell(
+        "offset_recovery_log",
+        "rap_ref2d_offset_recovery_log",
+        ("++agent.config.ref2d_shift_sampling_mode=log_hash",),
+    ),
+    ExperimentCell(
+        "recovery_aux_only_log_l03",
+        "rap_ref2d_recovery_aux_only_log_l03",
+        (
+            "++agent.config.ref2d_shift_sampling_mode=log_hash",
+            "++agent.config.recovery_aux_enabled=true",
+            "++agent.config.recovery_aux_weight=0.3",
+        ),
+    ),
+    ExperimentCell(
+        "offset_recovery_aux_log_l03",
+        "rap_ref2d_offset_recovery_aux_log_l03",
+        (
+            "++agent.config.ref2d_shift_sampling_mode=log_hash",
+            "++agent.config.recovery_aux_enabled=true",
+            "++agent.config.recovery_aux_weight=0.3",
+        ),
+    ),
 ]
+
+CELL_ALIASES = {
+    "shift_only": "shift_only_log",
+    "recovery_only": "recovery_only_log",
+    "offset_recovery": "offset_recovery_log",
+}
+
+
+def resolve_cells(cell_name: str) -> List[ExperimentCell]:
+    cells_by_name = {cell.name: cell for cell in EXPERIMENT_CELLS}
+    if cell_name == "all":
+        return EXPERIMENT_CELLS
+    resolved_name = CELL_ALIASES.get(cell_name, cell_name)
+    return [cells_by_name[resolved_name]]
 
 
 def build_training_command(
@@ -89,6 +134,7 @@ def build_training_command(
         "dataloader.params.prefetch_factor=null",
         "dataloader.params.drop_last=false",
     ]
+    command.extend(cell.overrides)
     if not clean_cache:
         command.extend(
             [
@@ -102,9 +148,7 @@ def build_training_command(
 
 
 def iter_commands(args: argparse.Namespace) -> Iterable[List[str]]:
-    cells = EXPERIMENT_CELLS
-    if args.cell != "all":
-        cells = [cell for cell in EXPERIMENT_CELLS if cell.name == args.cell]
+    cells = resolve_cells(args.cell)
 
     for cell in cells:
         yield build_training_command(
@@ -137,7 +181,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-path-perturbed", default=None)
     parser.add_argument("--cache-path-others", default=None)
     parser.add_argument("--output-dir", default="outputs/ref2d_matrix")
-    parser.add_argument("--cell", choices=["all"] + [cell.name for cell in EXPERIMENT_CELLS], default="all")
+    parser.add_argument(
+        "--cell",
+        choices=["all"] + [cell.name for cell in EXPERIMENT_CELLS] + sorted(CELL_ALIASES),
+        default="all",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--train-batches", type=int, default=1)
