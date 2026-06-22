@@ -33,6 +33,13 @@ def _text_array(value):
     return str(value)
 
 
+def _first_present(data, keys):
+    for key in keys:
+        if key in data:
+            return key, data[key]
+    return None, None
+
+
 def _closed_polygon(points):
     return np.concatenate([points, points[:1]], axis=0)
 
@@ -73,6 +80,40 @@ def _oriented_box_corners(x, y, heading, half_length, half_width, rear_axle_to_c
         [np.sin(heading), np.cos(heading)],
     ], dtype=np.float32)
     return local @ rot.T + np.array([center_x, center_y], dtype=np.float32)
+
+
+def _derive_ref_2d_sca(data, ref_2d):
+    key, value = _first_present(data, ("ref_2d_sca", "ref_2d_shifted", "ref_2d_post"))
+    if value is not None:
+        ref_2d_sca = np.asarray(value)
+        if ref_2d_sca.ndim == 3 and ref_2d_sca.shape[0] == 1:
+            ref_2d_sca = ref_2d_sca[0]
+        return ref_2d_sca, key
+
+    if "shift_y" not in data:
+        return None, None
+
+    ref_2d_sca = np.array(ref_2d, copy=True)
+    ref_2d_sca[:, 1] += float(_scalar(data, "shift_y", 0.0))
+    return ref_2d_sca, "derived from shift_y"
+
+
+def _style_metric_bev_axes(ax, data, title, show_labels=True):
+    pc_range = np.asarray(_scalar(data, "pc_range", np.array([-32, -32, -2, 32, 32, 6])))
+    if pc_range.shape[0] >= 6:
+        ax.set_xlim(float(pc_range[0]), float(pc_range[3]))
+        ax.set_ylim(float(pc_range[1]), float(pc_range[4]))
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_title(title)
+    if show_labels:
+        ax.set_xlabel("x forward (m)")
+        ax.set_ylabel("y left (m)")
+    ax.grid(True, linewidth=0.35, alpha=0.45)
+
+
+def _coverage_per_query(reference_points_cam, bev_mask):
+    valid = bev_mask.astype(bool) & _points_in_unit_image(reference_points_cam)
+    return valid.sum(axis=(0, 2))
 
 
 def _plot_ego(plt, ax, ref_2d, P, T, q_star):
@@ -139,15 +180,7 @@ def _plot_metric_bev(plt, ax, ref_2d, corners, P, T, q_star, data):
     ax.arrow(0.0, 0.0, 2.8, 0.0, width=0.08, head_width=0.55, head_length=0.8,
              color="black", length_includes_head=True)
 
-    pc_range = np.asarray(_scalar(data, "pc_range", np.array([-32, -32, -2, 32, 32, 6])))
-    if pc_range.shape[0] >= 6:
-        ax.set_xlim(float(pc_range[0]), float(pc_range[3]))
-        ax.set_ylim(float(pc_range[1]), float(pc_range[4]))
-    ax.set_aspect("equal", adjustable="box")
-    ax.set_title(f"metric BEV overlay (q*={q_star}, p={p_star}, t={t_star})")
-    ax.set_xlabel("x forward (m)")
-    ax.set_ylabel("y left (m)")
-    ax.grid(True, linewidth=0.35, alpha=0.45)
+    _style_metric_bev_axes(ax, data, f"metric BEV overlay (q*={q_star}, p={p_star}, t={t_star})")
     ax.legend(loc="best", fontsize=8)
 
 
@@ -310,6 +343,349 @@ def _plot_camera_image_overlays(fig, outer_spec, camera_images, reference_points
         ax.axis("off")
 
 
+def _plot_ref2d_shift_overlay(plt, ax, ref_2d, ref_2d_sca, ref_2d_sca_source, P, T, q_star, data):
+    traj = ref_2d.reshape(P, T, 3)
+    traj_sca = ref_2d_sca.reshape(P, T, 3)
+    p_star, t_star = divmod(q_star, T)
+
+    for p in range(P):
+        xy = traj[p, :, :2]
+        xy_sca = traj_sca[p, :, :2]
+        ax.plot(xy[:, 0], xy[:, 1], color="0.68", linewidth=0.7, alpha=0.35)
+        ax.plot(xy_sca[:, 0], xy_sca[:, 1], color="#1f77b4", linewidth=0.7, alpha=0.45)
+
+    step = max(1, ref_2d.shape[0] // 80)
+    delta = ref_2d_sca[:, :2] - ref_2d[:, :2]
+    anchors = ref_2d[::step, :2]
+    arrows = delta[::step]
+    nonzero = np.linalg.norm(arrows, axis=1) > 1e-8
+    if np.any(nonzero):
+        ax.quiver(
+            anchors[nonzero, 0],
+            anchors[nonzero, 1],
+            arrows[nonzero, 0],
+            arrows[nonzero, 1],
+            angles="xy",
+            scale_units="xy",
+            scale=1.0,
+            width=0.003,
+            color="#1f77b4",
+            alpha=0.75,
+        )
+
+    ax.scatter(ref_2d[:, 0], ref_2d[:, 1], s=10, color="0.25", alpha=0.35, label="ref_2d")
+    ax.scatter(ref_2d_sca[:, 0], ref_2d_sca[:, 1], s=10, color="#1f77b4", alpha=0.45,
+               label=f"ref_2d_sca ({ref_2d_sca_source})")
+
+    ax.plot(traj[p_star, :, 0], traj[p_star, :, 1], color=HIGHLIGHT, linewidth=2.0)
+    ax.plot(traj_sca[p_star, :, 0], traj_sca[p_star, :, 1], color=SELECTED, linewidth=2.0)
+    ax.scatter([ref_2d[q_star, 0]], [ref_2d[q_star, 1]], marker="*", s=160,
+               color=HIGHLIGHT, edgecolor="black", linewidth=0.6, zorder=5)
+    ax.scatter([ref_2d_sca[q_star, 0]], [ref_2d_sca[q_star, 1]], marker="*", s=150,
+               color=SELECTED, edgecolor="black", linewidth=0.6, zorder=5)
+
+    shift_y = float(np.median(delta[:, 1])) if delta.size else 0.0
+    _style_metric_bev_axes(ax, data, f"B3 ref_2d vs SCA shift, dy={shift_y:.3g}")
+    ax.legend(loc="best", fontsize=8)
+
+
+def _camera_debug_pair(data, reference_points_cam, bev_mask):
+    base_key, base_cam = _first_present(
+        data,
+        (
+            "reference_points_cam_baseline",
+            "reference_points_cam_pre",
+            "baseline_reference_points_cam",
+        ),
+    )
+    mask_key, base_mask = _first_present(
+        data,
+        (
+            "bev_mask_baseline",
+            "bev_mask_pre",
+            "baseline_bev_mask",
+        ),
+    )
+    shift_key, shift_cam = _first_present(
+        data,
+        (
+            "reference_points_cam_shifted",
+            "reference_points_cam_post",
+            "shifted_reference_points_cam",
+        ),
+    )
+    shifted_mask_key, shifted_mask = _first_present(
+        data,
+        (
+            "bev_mask_shifted",
+            "bev_mask_post",
+            "shifted_bev_mask",
+        ),
+    )
+    if shift_cam is None:
+        shift_cam = reference_points_cam
+        shift_key = "reference_points_cam"
+    if shifted_mask is None:
+        shifted_mask = bev_mask
+        shifted_mask_key = "bev_mask"
+    if base_cam is None or base_mask is None:
+        return None, None, shift_cam, shifted_mask, base_key, mask_key, shift_key, shifted_mask_key
+    return base_cam, base_mask, shift_cam, shifted_mask, base_key, mask_key, shift_key, shifted_mask_key
+
+
+def _plot_camera_shift_overlay(fig, outer_spec, reference_points_cam, bev_mask, data, q_star):
+    (
+        base_cam,
+        base_mask,
+        shift_cam,
+        shift_mask,
+        base_key,
+        mask_key,
+        shift_key,
+        shifted_mask_key,
+    ) = _camera_debug_pair(data, reference_points_cam, bev_mask)
+
+    if base_cam is None:
+        ax = fig.add_subplot(outer_spec)
+        ax.axis("off")
+        ax.text(
+            0.5,
+            0.5,
+            "B4 camera baseline-vs-shift overlay\nmissing baseline camera fields",
+            ha="center",
+            va="center",
+            fontsize=10,
+        )
+        ax.set_title("B4 camera footprint shift")
+        return
+
+    num_cam, _, D, _ = shift_cam.shape
+    cols = int(math.ceil(math.sqrt(num_cam)))
+    rows = int(math.ceil(num_cam / cols))
+    inner = outer_spec.subgridspec(rows, cols, wspace=0.25, hspace=0.35)
+
+    camera_images = data["camera_images"] if "camera_images" in data else None
+    if camera_images is not None:
+        color_order = _text_array(data["camera_image_color_order"]) if "camera_image_color_order" in data else "RGB"
+        if color_order == "BGR":
+            camera_images = camera_images[..., ::-1]
+        _, height, width, _ = camera_images.shape
+    else:
+        height, width = 1.0, 1.0
+
+    for cam in range(num_cam):
+        ax = fig.add_subplot(inner[cam // cols, cam % cols])
+        if camera_images is not None:
+            ax.imshow(camera_images[cam])
+
+        base_pts = base_cam[cam, q_star]
+        shift_pts = shift_cam[cam, q_star]
+        base_valid = base_mask[cam, q_star].astype(bool) & _points_in_unit_image(base_pts)
+        shift_valid = shift_mask[cam, q_star].astype(bool) & _points_in_unit_image(shift_pts)
+
+        base_draw = base_pts * np.array([width, height], dtype=np.float32)
+        shift_draw = shift_pts * np.array([width, height], dtype=np.float32)
+        for d in range(D):
+            if base_valid[d] and shift_valid[d]:
+                ax.plot(
+                    [base_draw[d, 0], shift_draw[d, 0]],
+                    [base_draw[d, 1], shift_draw[d, 1]],
+                    color=SELECTED,
+                    linewidth=0.8,
+                    alpha=0.8,
+                )
+
+        if np.any(base_valid):
+            ax.scatter(base_draw[base_valid, 0], base_draw[base_valid, 1], s=28,
+                       color="0.25", alpha=0.75, label="baseline")
+        if np.any(shift_valid):
+            ax.scatter(shift_draw[shift_valid, 0], shift_draw[shift_valid, 1], s=28,
+                       color=HIGHLIGHT, alpha=0.85, label="shifted")
+
+        ax.set_title(f"camera {cam}")
+        if camera_images is not None:
+            ax.set_xlim(0, width)
+            ax.set_ylim(height, 0)
+            ax.set_xticks([])
+            ax.set_yticks([])
+        else:
+            ax.set_xlim(0, 1)
+            ax.set_ylim(1, 0)
+            ax.set_xlabel("u")
+            ax.set_ylabel("v")
+            ax.grid(True, linewidth=0.3, alpha=0.35)
+        if cam == 0:
+            ax.legend(loc="best", fontsize=7)
+
+    for idx in range(num_cam, rows * cols):
+        ax = fig.add_subplot(inner[idx // cols, idx % cols])
+        ax.axis("off")
+
+
+def _plot_bev_mask_coverage(fig, outer_spec, reference_points_cam, bev_mask, data, P, T):
+    base_cam, base_mask, shift_cam, shift_mask, *_ = _camera_debug_pair(data, reference_points_cam, bev_mask)
+    inner = outer_spec.subgridspec(1, 2, width_ratios=[1.1, 1.0], wspace=0.28)
+    ax_bev = fig.add_subplot(inner[0, 0])
+    ax_grid = fig.add_subplot(inner[0, 1])
+
+    ref_2d = data["ref_2d"]
+    current_count = _coverage_per_query(shift_cam, shift_mask)
+    if base_cam is not None:
+        baseline_count = _coverage_per_query(base_cam, base_mask)
+        color_values = current_count - baseline_count
+        title = "B5 BEV coverage delta"
+        cmap = "coolwarm"
+        vmax = max(float(np.max(np.abs(color_values))), 1.0)
+        vmin = -vmax
+        grid_values = color_values.reshape(P, T)
+    else:
+        color_values = current_count
+        title = "B5 BEV coverage count"
+        cmap = "viridis"
+        vmin = 0.0
+        vmax = max(float(np.max(color_values)), 1.0)
+        grid_values = current_count.reshape(P, T)
+
+    scatter = ax_bev.scatter(ref_2d[:, 0], ref_2d[:, 1], c=color_values, cmap=cmap,
+                             vmin=vmin, vmax=vmax, s=16, linewidths=0)
+    _style_metric_bev_axes(ax_bev, data, title)
+    fig.colorbar(scatter, ax=ax_bev, fraction=0.046, pad=0.03)
+
+    image = ax_grid.imshow(grid_values, aspect="auto", interpolation="nearest",
+                           cmap=cmap, vmin=vmin, vmax=vmax)
+    ax_grid.set_title("P x T coverage")
+    ax_grid.set_xlabel("t")
+    ax_grid.set_ylabel("proposal p")
+    fig.colorbar(image, ax=ax_grid, fraction=0.046, pad=0.03)
+
+
+def _plot_shift_geometry_checks(fig, outer_spec, plt, ref_2d, reference_points_cam,
+                                bev_mask, data, P, T, q_star):
+    ref_2d_sca, ref_2d_sca_source = _derive_ref_2d_sca(data, ref_2d)
+    grid = outer_spec.subgridspec(1, 3, width_ratios=[1.15, 1.2, 1.2], wspace=0.25)
+
+    ax_shift = fig.add_subplot(grid[0, 0])
+    if ref_2d_sca is None:
+        ax_shift.axis("off")
+        ax_shift.text(0.5, 0.5, "B3 requires ref_2d_sca or shift_y", ha="center", va="center")
+        ax_shift.set_title("B3 ref_2d shift")
+    else:
+        _plot_ref2d_shift_overlay(plt, ax_shift, ref_2d, ref_2d_sca, ref_2d_sca_source, P, T, q_star, data)
+
+    _plot_camera_shift_overlay(fig, grid[0, 1], reference_points_cam, bev_mask, data, q_star)
+    _plot_bev_mask_coverage(fig, grid[0, 2], reference_points_cam, bev_mask, data, P, T)
+
+
+def _has_shift_geometry_checks(data):
+    return any(
+        key in data
+        for key in (
+            "ref_2d_sca",
+            "ref_2d_shifted",
+            "ref_2d_post",
+            "shift_y",
+            "reference_points_cam_baseline",
+            "reference_points_cam_pre",
+            "baseline_reference_points_cam",
+            "bev_mask_baseline",
+            "bev_mask_pre",
+            "baseline_bev_mask",
+        )
+    )
+
+
+def _normalize01(values):
+    values = np.asarray(values, dtype=np.float32)
+    finite = np.isfinite(values)
+    if not np.any(finite):
+        return np.zeros_like(values, dtype=np.float32)
+    lo = float(np.min(values[finite]))
+    hi = float(np.max(values[finite]))
+    if hi <= lo:
+        return np.zeros_like(values, dtype=np.float32)
+    return (values - lo) / (hi - lo)
+
+
+def _nearest_shift_indices(ref_xy, shift_y):
+    try:
+        from sklearn.neighbors import NearestNeighbors
+
+        target_xy = ref_xy + np.array([0.0, shift_y], dtype=np.float32)
+        return NearestNeighbors(n_neighbors=1).fit(ref_xy).kneighbors(target_xy, return_distance=False)[:, 0]
+    except Exception:
+        target_xy = ref_xy + np.array([0.0, shift_y], dtype=np.float32)
+        distances = np.linalg.norm(target_xy[:, None, :] - ref_xy[None, :, :], axis=-1)
+        return np.argmin(distances, axis=1)
+
+
+def _feature_pca_rgb(feature_pre, feature_post):
+    features = np.concatenate([feature_pre, feature_post], axis=0)
+    try:
+        from sklearn.decomposition import PCA
+
+        components = PCA(n_components=3).fit_transform(features)
+    except Exception:
+        centered = features - features.mean(axis=0, keepdims=True)
+        _, _, vt = np.linalg.svd(centered, full_matrices=False)
+        n_components = min(3, vt.shape[0])
+        components = centered @ vt[:n_components].T
+        if n_components < 3:
+            pad = np.zeros((components.shape[0], 3 - n_components), dtype=components.dtype)
+            components = np.concatenate([components, pad], axis=1)
+    rgb = np.stack([_normalize01(components[:, idx]) for idx in range(3)], axis=-1)
+    return rgb[: feature_pre.shape[0]], rgb[feature_pre.shape[0] :]
+
+
+def _plot_bev_feature_delta(fig, outer_spec, ref_2d, feature_pre, feature_post, shift_y, data):
+    from matplotlib.colors import TwoSlopeNorm
+
+    ref_xy = ref_2d[:, :2]
+    delta = feature_post - feature_pre
+    delta_norm = np.linalg.norm(delta, axis=1)
+    delta_color = delta_norm / max(float(np.max(delta_norm)), 1e-12)
+
+    pre_norm = np.linalg.norm(feature_pre, axis=1)
+    post_norm = np.linalg.norm(feature_post, axis=1)
+    cosine = np.sum(feature_pre * feature_post, axis=1) / np.maximum(pre_norm * post_norm, 1e-12)
+    cosine = np.clip(cosine, -1.0, 1.0)
+
+    pre_rgb, post_rgb = _feature_pca_rgb(feature_pre, feature_post)
+
+    shifted_indices = _nearest_shift_indices(ref_xy, shift_y)
+    shift_residual = np.linalg.norm(feature_post - feature_pre[shifted_indices], axis=1)
+    shift_residual_color = shift_residual / max(float(np.max(shift_residual)), 1e-12)
+
+    grid = outer_spec.subgridspec(1, 4, wspace=0.22)
+    ax_delta = fig.add_subplot(grid[0, 0])
+    ax_cos = fig.add_subplot(grid[0, 1])
+    pca_grid = grid[0, 2].subgridspec(1, 2, wspace=0.08)
+    ax_pca_pre = fig.add_subplot(pca_grid[0, 0])
+    ax_pca_post = fig.add_subplot(pca_grid[0, 1])
+    ax_shift = fig.add_subplot(grid[0, 3])
+
+    scatter = ax_delta.scatter(ref_xy[:, 0], ref_xy[:, 1], c=delta_color, cmap="magma",
+                               vmin=0.0, vmax=1.0, s=14, linewidths=0)
+    _style_metric_bev_axes(ax_delta, data, "V1 delta-norm")
+    fig.colorbar(scatter, ax=ax_delta, fraction=0.046, pad=0.03)
+
+    cos_norm = TwoSlopeNorm(vmin=-1.0, vcenter=1.0, vmax=1.000001)
+    scatter = ax_cos.scatter(ref_xy[:, 0], ref_xy[:, 1], c=cosine, cmap="coolwarm",
+                             norm=cos_norm, s=14, linewidths=0)
+    _style_metric_bev_axes(ax_cos, data, "V2 cosine")
+    fig.colorbar(scatter, ax=ax_cos, fraction=0.046, pad=0.03)
+
+    ax_pca_pre.scatter(ref_xy[:, 0], ref_xy[:, 1], c=pre_rgb, s=14, linewidths=0)
+    _style_metric_bev_axes(ax_pca_pre, data, "V3 PCA pre", show_labels=False)
+    ax_pca_post.scatter(ref_xy[:, 0], ref_xy[:, 1], c=post_rgb, s=14, linewidths=0)
+    _style_metric_bev_axes(ax_pca_post, data, "V3 PCA post", show_labels=False)
+    ax_pca_post.set_yticklabels([])
+
+    scatter = ax_shift.scatter(ref_xy[:, 0], ref_xy[:, 1], c=shift_residual_color, cmap="viridis",
+                               vmin=0.0, vmax=1.0, s=14, linewidths=0)
+    _style_metric_bev_axes(ax_shift, data, f"V4 shift residual y={shift_y:.3g}")
+    fig.colorbar(scatter, ax=ax_shift, fraction=0.046, pad=0.03)
+
+
 def render(dump_path, query=None, out_path=None, show_all_camera_points=False):
     import matplotlib
     matplotlib.use("Agg")
@@ -319,6 +695,32 @@ def render(dump_path, query=None, out_path=None, show_all_camera_points=False):
     ref_2d = data["ref_2d"]
     ref_pos = data["ref_pos"]
     corners = data["corners"]
+
+    if "bev_feature_pre" in data and "bev_feature_post" in data:
+        feature_pre = data["bev_feature_pre"]
+        feature_post = data["bev_feature_post"]
+        shift_y = float(_scalar(data, "shift_y", 0.0))
+        Q = int(_scalar(data, "Q", ref_2d.shape[0]))
+        P = int(_scalar(data, "proposal_num"))
+        T = int(_scalar(data, "num_poses"))
+        if P * T != Q:
+            raise ValueError(f"proposal_num * num_poses != Q: {P} * {T} != {Q}")
+        assert ref_2d.shape == (Q, 3)
+        assert ref_pos.shape == (Q, 2)
+        assert corners.shape == (Q, 4, 2)
+        assert feature_pre.shape == feature_post.shape
+        assert feature_pre.shape[0] == Q
+
+        if out_path is None:
+            out_path = dump_path.rsplit(".", 1)[0] + "_bev_feature_viz.png"
+        fig = plt.figure(figsize=(24, 6), constrained_layout=True)
+        outer = fig.add_gridspec(1, 1)
+        _plot_bev_feature_delta(fig, outer[0, 0], ref_2d, feature_pre, feature_post, shift_y, data)
+        fig.suptitle(str(dump_path), fontsize=10)
+        fig.savefig(out_path, dpi=180)
+        plt.close(fig)
+        return out_path
+
     reference_points_cam = data["reference_points_cam"]
     bev_mask = data["bev_mask"]
 
@@ -344,14 +746,19 @@ def render(dump_path, query=None, out_path=None, show_all_camera_points=False):
     if out_path is None:
         out_path = dump_path.rsplit(".", 1)[0] + "_viz.png"
 
+    has_shift_checks = _has_shift_geometry_checks(data)
     if "camera_images" in data:
         camera_images = data["camera_images"]
         assert camera_images.shape[0] == num_cam and camera_images.shape[-1] == 3
         color_order = _text_array(data["camera_image_color_order"]) if "camera_image_color_order" in data else "RGB"
         if color_order == "BGR":
             camera_images = camera_images[..., ::-1]
-        fig = plt.figure(figsize=(22, 13), constrained_layout=True)
-        outer = fig.add_gridspec(2, 1, height_ratios=[1.15, 1.0])
+        if has_shift_checks:
+            fig = plt.figure(figsize=(24, 19), constrained_layout=True)
+            outer = fig.add_gridspec(3, 1, height_ratios=[1.15, 1.0, 1.05])
+        else:
+            fig = plt.figure(figsize=(22, 13), constrained_layout=True)
+            outer = fig.add_gridspec(2, 1, height_ratios=[1.15, 1.0])
         _plot_camera_image_overlays(
             fig, outer[0, 0], camera_images, reference_points_cam, bev_mask,
             data, query, P, T, show_all_camera_points=show_all_camera_points)
@@ -359,13 +766,25 @@ def render(dump_path, query=None, out_path=None, show_all_camera_points=False):
         ax_bev = fig.add_subplot(bottom[0, 0])
         _plot_metric_bev(plt, ax_bev, ref_2d, corners, P, T, query, data)
         _plot_temporal(fig, bottom[0, 1], ref_pos, P, T, query)
+        if has_shift_checks:
+            _plot_shift_geometry_checks(
+                fig, outer[2, 0], plt, ref_2d, reference_points_cam, bev_mask, data, P, T, query)
     else:
-        fig = plt.figure(figsize=(21, 7), constrained_layout=True)
-        outer = fig.add_gridspec(1, 3, width_ratios=[1.0, 1.35, 1.3])
-        ax_bev = fig.add_subplot(outer[0, 0])
+        if has_shift_checks:
+            fig = plt.figure(figsize=(24, 14), constrained_layout=True)
+            outer = fig.add_gridspec(2, 1, height_ratios=[1.0, 1.05])
+            top = outer[0, 0].subgridspec(1, 3, width_ratios=[1.0, 1.35, 1.3])
+        else:
+            fig = plt.figure(figsize=(21, 7), constrained_layout=True)
+            outer = fig.add_gridspec(1, 3, width_ratios=[1.0, 1.35, 1.3])
+            top = outer
+        ax_bev = fig.add_subplot(top[0, 0])
         _plot_metric_bev(plt, ax_bev, ref_2d, corners, P, T, query, data)
-        _plot_temporal(fig, outer[0, 1], ref_pos, P, T, query)
-        _plot_cameras(fig, outer[0, 2], reference_points_cam, bev_mask, data, query)
+        _plot_temporal(fig, top[0, 1], ref_pos, P, T, query)
+        _plot_cameras(fig, top[0, 2], reference_points_cam, bev_mask, data, query)
+        if has_shift_checks:
+            _plot_shift_geometry_checks(
+                fig, outer[1, 0], plt, ref_2d, reference_points_cam, bev_mask, data, P, T, query)
 
     fig.suptitle(str(dump_path), fontsize=10)
     fig.savefig(out_path, dpi=180)

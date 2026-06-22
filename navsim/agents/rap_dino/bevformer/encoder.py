@@ -346,6 +346,9 @@ class BEVFormerEncoder(TransformerLayerSequence):
         if self.return_intermediate:
             return torch.stack(intermediate)
 
+        features = self._features_from_kwargs(kwargs)
+        self._record_ref2d_debug(features, bev_feature=output)
+
         return output
 
 
