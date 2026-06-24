@@ -29,6 +29,19 @@ class RAPConfig:
     bev_map: bool=False
     bev_agent: bool=False
 
+    # --- Camera-agnostic canonical BEV (Sekikawa idea) ---
+    use_canonical_bev: bool = False        # master switch for the whole feature
+    stage: str = "stage1"                  # stage1 (oracle) | stage2 (align) | stage3 (joint)
+    canon_raster_ch: int = 8               # channels of build_canonical_bev output
+    canon_raster_size: int = 128           # symmetric raster H=W (0.5 m/px over +-32 m)
+    canon_bev_range: float = 32.0          # half-range (m); matches point_cloud_range x_max
+    bev_grid_h: int = 32                   # F (B, d_model, bev_grid_h, bev_grid_w)
+    bev_grid_w: int = 32
+    align_weight: float = 1.0              # stage2: weight of MSE+cos alignment loss
+    align_use_cosine: bool = True
+    align_use_grl: bool = False
+    freeze_planner: bool = False           # stage2: freeze CanonBEVEncoder + planner + scorer
+
     proposal_num: int = 64
     point_cloud_range = [-32, -32, -2.0, 32, 32, 6.0]
     num_points_in_pillar: int=4

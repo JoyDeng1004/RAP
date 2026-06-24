@@ -6,6 +6,7 @@ from .score_module.scorer import Scorer
 from .traj_refiner import Traj_refiner
 from .bevformer.image_encoder import ImgEncoder
 from .bevformer.transformer_decoder import MLP
+from .canon_bev_encoder import CanonBEVEncoder
 
 class LambdaScheduler:
     def __init__(self, gamma=10.0):

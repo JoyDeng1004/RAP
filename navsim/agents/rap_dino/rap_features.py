@@ -24,6 +24,7 @@ from navsim.planning.training.abstract_feature_target_builder import (
     AbstractTargetBuilder,
 )
 from .bevformer.bev_feature_build import _get_bev_feature
+from .canonical_bev import build_canonical_bev
 
 
 
@@ -125,13 +126,27 @@ class RAPTargetBuilder(AbstractTargetBuilder):
         # agent_states, agent_labels = self._compute_agent_targets(annotations)
         # bev_semantic_map = self._compute_bev_semantic_map(annotations, scene.map_api, ego_pose)
 
-        return {
+        targets = {
             "trajectory": trajectory,
             # "agent_states": agent_states,
             # "agent_labels": agent_labels,
             # "bev_semantic_map": bev_semantic_map,
             "token":scene.scene_metadata.initial_token
         }
+
+        # Canonical (camera-agnostic) BEV teacher raster -- train-time only.
+        # NOTE: the full rasterizer machinery lives here in the *target* builder
+        # because only the target builder receives the Scene (annotations + map).
+        # The raster rides in targets["bev_raster"]; the lightning module passes
+        # both features and targets into agent.forward, so the model can read it.
+        if getattr(self._config, "use_canonical_bev", False):
+            frame_idx = scene.scene_metadata.num_history_frames - 1
+            annotations = scene.frames[frame_idx].annotations
+            ego_pose = StateSE2(*scene.frames[frame_idx].ego_status.ego_pose)
+            bev_raster = build_canonical_bev(annotations, scene.map_api, ego_pose, self._config)
+            targets["bev_raster"] = torch.from_numpy(bev_raster)
+
+        return targets
 
     def _compute_agent_targets(self, annotations: Annotations) -> Tuple[torch.Tensor, torch.Tensor]:
         """
