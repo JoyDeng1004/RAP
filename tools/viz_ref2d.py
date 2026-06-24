@@ -343,6 +343,118 @@ def _plot_camera_image_overlays(fig, outer_spec, camera_images, reference_points
         ax.axis("off")
 
 
+def _c6_present(data):
+    return "sampling_locations_baseline" in data or "sampling_locations_shifted" in data
+
+
+def _camera_display_order(data, num_cam):
+    """Return (order, names): camera column order front-centric (left, front, right, back)."""
+    names = list(_text_array(data["camera_order"])) if "camera_order" in data else [
+        f"camera {i}" for i in range(num_cam)]
+    preferred = ["cam_l0", "cam_f0", "cam_r0", "cam_b0"]
+    order = []
+    for pref in preferred:
+        for i in range(num_cam):
+            if i < len(names) and names[i] == pref and i not in order:
+                order.append(i)
+    for i in range(num_cam):
+        if i not in order:
+            order.append(i)
+    return order, names
+
+
+def _gather_sampling(data, prefix, cam, q_star):
+    """Return (pixel-free normalized points (N, 2), alpha weights (N,)) for one cam/query."""
+    key = f"sampling_locations_{prefix}"
+    if key not in data:
+        return None, None
+    valid = data.get(f"sampling_valid_{prefix}")
+    if valid is not None and not bool(np.asarray(valid)[cam, q_star]):
+        return None, None
+    locs = np.asarray(data[key])[cam, q_star].reshape(-1, 2)  # (heads*all_pts, 2)
+    weights_key = f"attention_weights_{prefix}"
+    if weights_key in data:
+        weights = np.asarray(data[weights_key])[cam, q_star].reshape(-1)
+    else:
+        weights = np.ones(locs.shape[0], dtype=np.float32)
+    finite = np.isfinite(locs).all(axis=1) & np.isfinite(weights)
+    return locs[finite], weights[finite]
+
+
+def _plot_sampling_points_overlay(fig, outer_spec, camera_images, reference_points_cam,
+                                  bev_mask, data, q_star):
+    """C6 — deformable sampling points on real images, alpha-weighted by attention.
+
+    Baseline points are blue, shifted points red. The reference_points_cam footprint
+    for q* is drawn as an anchor star in each color.
+    """
+    num_cam, H, W, _ = camera_images.shape
+    order, names = _camera_display_order(data, num_cam)
+    inner = outer_spec.subgridspec(1, num_cam, wspace=0.06)
+    camera_order = names
+    scale = np.array([W, H], dtype=np.float32)
+
+    ref_cam_base = data.get("reference_points_cam_baseline", reference_points_cam)
+    ref_cam_shift = data.get("reference_points_cam_shifted")
+
+    for col, cam in enumerate(order):
+        ax = fig.add_subplot(inner[0, col])
+        ax.imshow(camera_images[cam])
+
+        n_total = 0
+        for prefix, color in (("baseline", "#1f77b4"), ("shifted", HIGHLIGHT)):
+            locs, weights = _gather_sampling(data, prefix, cam, q_star)
+            if locs is None or locs.size == 0:
+                continue
+            pix = locs * scale
+            in_img = _points_in_pixel_image_arr(pix, W, H)
+            pix, w = pix[in_img], weights[in_img]
+            if pix.size == 0:
+                continue
+            alpha = _normalize01(w)
+            # Per-point alpha encoded via RGBA (array alpha= isn't supported on old mpl).
+            from matplotlib.colors import to_rgb
+            rgb = to_rgb(color)
+            rgba = np.empty((pix.shape[0], 4), dtype=np.float32)
+            rgba[:, :3] = rgb
+            rgba[:, 3] = np.clip(0.15 + 0.8 * alpha, 0.0, 1.0)
+            ax.scatter(pix[:, 0], pix[:, 1], s=10 + 40 * alpha, c=rgba,
+                       linewidths=0, zorder=4)
+            n_total += pix.shape[0]
+
+        # Anchor footprint (mean over D height samples that are valid) for q*.
+        for ref_cam, mask_key, color in (
+            (ref_cam_base, "bev_mask_baseline", "#1f77b4"),
+            (ref_cam_shift, "bev_mask_shifted", HIGHLIGHT),
+        ):
+            if ref_cam is None:
+                continue
+            pts = np.asarray(ref_cam)[cam, q_star]  # (D, 2)
+            mask = data.get(mask_key)
+            keep = _points_in_unit_image(pts)
+            if mask is not None:
+                keep = keep & np.asarray(mask)[cam, q_star].astype(bool)
+            pts = pts[keep]
+            if pts.size == 0:
+                continue
+            anchor = pts.mean(axis=0) * scale
+            ax.scatter([anchor[0]], [anchor[1]], marker="*", s=180, color=color,
+                       edgecolor="black", linewidth=0.6, zorder=6)
+
+        title = camera_order[cam] if cam < len(camera_order) else f"camera {cam}"
+        ax.set_title(f"C6 {title}: q*={q_star} pts={n_total}", fontsize=9)
+        ax.set_xlim(0, W)
+        ax.set_ylim(H, 0)
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+
+def _points_in_pixel_image_arr(pixel_points, width, height):
+    x = pixel_points[:, 0]
+    y = pixel_points[:, 1]
+    return (x >= 0) & (x < width) & (y >= 0) & (y < height)
+
+
 def _plot_ref2d_shift_overlay(plt, ax, ref_2d, ref_2d_sca, ref_2d_sca_source, P, T, q_star, data):
     traj = ref_2d.reshape(P, T, 3)
     traj_sca = ref_2d_sca.reshape(P, T, 3)
@@ -460,9 +572,8 @@ def _plot_camera_shift_overlay(fig, outer_spec, reference_points_cam, bev_mask, 
         return
 
     num_cam, _, D, _ = shift_cam.shape
-    cols = int(math.ceil(math.sqrt(num_cam)))
-    rows = int(math.ceil(num_cam / cols))
-    inner = outer_spec.subgridspec(rows, cols, wspace=0.25, hspace=0.35)
+    order, names = _camera_display_order(data, num_cam)
+    inner = outer_spec.subgridspec(1, num_cam, wspace=0.06)
 
     camera_images = data["camera_images"] if "camera_images" in data else None
     if camera_images is not None:
@@ -473,8 +584,8 @@ def _plot_camera_shift_overlay(fig, outer_spec, reference_points_cam, bev_mask, 
     else:
         height, width = 1.0, 1.0
 
-    for cam in range(num_cam):
-        ax = fig.add_subplot(inner[cam // cols, cam % cols])
+    for col, cam in enumerate(order):
+        ax = fig.add_subplot(inner[0, col])
         if camera_images is not None:
             ax.imshow(camera_images[cam])
 
@@ -496,13 +607,14 @@ def _plot_camera_shift_overlay(fig, outer_spec, reference_points_cam, bev_mask, 
                 )
 
         if np.any(base_valid):
-            ax.scatter(base_draw[base_valid, 0], base_draw[base_valid, 1], s=28,
-                       color="0.25", alpha=0.75, label="baseline")
+            ax.scatter(base_draw[base_valid, 0], base_draw[base_valid, 1], s=30,
+                       color="#1f77b4", alpha=0.85, label="baseline")
         if np.any(shift_valid):
-            ax.scatter(shift_draw[shift_valid, 0], shift_draw[shift_valid, 1], s=28,
-                       color=HIGHLIGHT, alpha=0.85, label="shifted")
+            ax.scatter(shift_draw[shift_valid, 0], shift_draw[shift_valid, 1], s=30,
+                       color=HIGHLIGHT, alpha=0.9, label="shifted")
 
-        ax.set_title(f"camera {cam}")
+        name = names[cam] if cam < len(names) else f"camera {cam}"
+        ax.set_title(f"B4 {name}", fontsize=9)
         if camera_images is not None:
             ax.set_xlim(0, width)
             ax.set_ylim(height, 0)
@@ -514,19 +626,19 @@ def _plot_camera_shift_overlay(fig, outer_spec, reference_points_cam, bev_mask, 
             ax.set_xlabel("u")
             ax.set_ylabel("v")
             ax.grid(True, linewidth=0.3, alpha=0.35)
-        if cam == 0:
-            ax.legend(loc="best", fontsize=7)
-
-    for idx in range(num_cam, rows * cols):
-        ax = fig.add_subplot(inner[idx // cols, idx % cols])
-        ax.axis("off")
+        if col == 0 and (np.any(base_valid) or np.any(shift_valid)):
+            ax.legend(loc="upper right", fontsize=7)
 
 
-def _plot_bev_mask_coverage(fig, outer_spec, reference_points_cam, bev_mask, data, P, T):
+def _plot_bev_mask_coverage(fig, outer_spec, reference_points_cam, bev_mask, data, P, T, grid=True):
     base_cam, base_mask, shift_cam, shift_mask, *_ = _camera_debug_pair(data, reference_points_cam, bev_mask)
-    inner = outer_spec.subgridspec(1, 2, width_ratios=[1.1, 1.0], wspace=0.28)
-    ax_bev = fig.add_subplot(inner[0, 0])
-    ax_grid = fig.add_subplot(inner[0, 1])
+    if grid:
+        inner = outer_spec.subgridspec(1, 2, width_ratios=[1.1, 1.0], wspace=0.28)
+        ax_bev = fig.add_subplot(inner[0, 0])
+        ax_grid = fig.add_subplot(inner[0, 1])
+    else:
+        ax_bev = fig.add_subplot(outer_spec)
+        ax_grid = None
 
     ref_2d = data["ref_2d"]
     current_count = _coverage_per_query(shift_cam, shift_mask)
@@ -551,12 +663,13 @@ def _plot_bev_mask_coverage(fig, outer_spec, reference_points_cam, bev_mask, dat
     _style_metric_bev_axes(ax_bev, data, title)
     fig.colorbar(scatter, ax=ax_bev, fraction=0.046, pad=0.03)
 
-    image = ax_grid.imshow(grid_values, aspect="auto", interpolation="nearest",
-                           cmap=cmap, vmin=vmin, vmax=vmax)
-    ax_grid.set_title("P x T coverage")
-    ax_grid.set_xlabel("t")
-    ax_grid.set_ylabel("proposal p")
-    fig.colorbar(image, ax=ax_grid, fraction=0.046, pad=0.03)
+    if ax_grid is not None:
+        image = ax_grid.imshow(grid_values, aspect="auto", interpolation="nearest",
+                               cmap=cmap, vmin=vmin, vmax=vmax)
+        ax_grid.set_title("P x T coverage")
+        ax_grid.set_xlabel("t")
+        ax_grid.set_ylabel("proposal p")
+        fig.colorbar(image, ax=ax_grid, fraction=0.046, pad=0.03)
 
 
 def _plot_shift_geometry_checks(fig, outer_spec, plt, ref_2d, reference_points_cam,
@@ -747,18 +860,51 @@ def render(dump_path, query=None, out_path=None, show_all_camera_points=False):
         out_path = dump_path.rsplit(".", 1)[0] + "_viz.png"
 
     has_shift_checks = _has_shift_geometry_checks(data)
-    if "camera_images" in data:
+    if "camera_images" in data and has_shift_checks:
+        # Clean stacked layout for real-sample shift dumps (tools/dump_ref2d_real.py):
+        #   Row 1: B4 - baseline vs shifted reference_points_cam footprints on real images (1xN)
+        #   Row 2: C6 - deformable sampling points on real images (1xN, only if present)
+        #   Row 3: BEV diagnostics - metric BEV | B3 ref_2d shift | B5 coverage
+        camera_images = data["camera_images"]
+        assert camera_images.shape[0] == num_cam and camera_images.shape[-1] == 3
+        has_c6 = _c6_present(data)
+        # Camera rows are wide-and-short (1xN); the diagnostics row is taller.
+        cam_aspect = float(camera_images.shape[1]) / float(camera_images.shape[2])  # H/W per cam
+        cam_row_h = max(0.45, cam_aspect * (24.0 / max(num_cam, 1)) / 6.4)
+        height_ratios = [cam_row_h]
+        if has_c6:
+            height_ratios.append(cam_row_h)
+        height_ratios.append(1.0)
+        fig = plt.figure(figsize=(24, 6.4 * sum(height_ratios)), constrained_layout=True)
+        outer = fig.add_gridspec(len(height_ratios), 1, height_ratios=height_ratios)
+
+        row = 0
+        _plot_camera_shift_overlay(fig, outer[row, 0], reference_points_cam, bev_mask, data, query)
+        row += 1
+        if has_c6:
+            _plot_sampling_points_overlay(
+                fig, outer[row, 0], camera_images, reference_points_cam, bev_mask, data, query)
+            row += 1
+
+        diag = outer[row, 0].subgridspec(1, 3, width_ratios=[1.0, 1.0, 1.2], wspace=0.26)
+        ax_bev = fig.add_subplot(diag[0, 0])
+        _plot_metric_bev(plt, ax_bev, ref_2d, corners, P, T, query, data)
+        ax_shift = fig.add_subplot(diag[0, 1])
+        ref_2d_sca, ref_2d_sca_source = _derive_ref_2d_sca(data, ref_2d)
+        if ref_2d_sca is not None:
+            _plot_ref2d_shift_overlay(plt, ax_shift, ref_2d, ref_2d_sca, ref_2d_sca_source, P, T, query, data)
+        else:
+            ax_shift.axis("off")
+            ax_shift.set_title("B3 ref_2d shift (needs ref_2d_sca/shift_y)")
+        _plot_bev_mask_coverage(fig, diag[0, 2], reference_points_cam, bev_mask, data, P, T, grid=False)
+    elif "camera_images" in data:
         camera_images = data["camera_images"]
         assert camera_images.shape[0] == num_cam and camera_images.shape[-1] == 3
         color_order = _text_array(data["camera_image_color_order"]) if "camera_image_color_order" in data else "RGB"
         if color_order == "BGR":
             camera_images = camera_images[..., ::-1]
-        if has_shift_checks:
-            fig = plt.figure(figsize=(24, 19), constrained_layout=True)
-            outer = fig.add_gridspec(3, 1, height_ratios=[1.15, 1.0, 1.05])
-        else:
-            fig = plt.figure(figsize=(22, 13), constrained_layout=True)
-            outer = fig.add_gridspec(2, 1, height_ratios=[1.15, 1.0])
+        fig = plt.figure(figsize=(22, 13), constrained_layout=True)
+        outer = fig.add_gridspec(2, 1, height_ratios=[1.15, 1.0])
         _plot_camera_image_overlays(
             fig, outer[0, 0], camera_images, reference_points_cam, bev_mask,
             data, query, P, T, show_all_camera_points=show_all_camera_points)
@@ -766,9 +912,6 @@ def render(dump_path, query=None, out_path=None, show_all_camera_points=False):
         ax_bev = fig.add_subplot(bottom[0, 0])
         _plot_metric_bev(plt, ax_bev, ref_2d, corners, P, T, query, data)
         _plot_temporal(fig, bottom[0, 1], ref_pos, P, T, query)
-        if has_shift_checks:
-            _plot_shift_geometry_checks(
-                fig, outer[2, 0], plt, ref_2d, reference_points_cam, bev_mask, data, P, T, query)
     else:
         if has_shift_checks:
             fig = plt.figure(figsize=(24, 14), constrained_layout=True)

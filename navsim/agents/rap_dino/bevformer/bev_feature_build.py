@@ -41,11 +41,13 @@ def LoadMultiViewImageFromFiles(agent_input,synthetic=False):
             if cam.image is None:
                 continue
             if synthetic:
-                img = cam.rendered_image.astype(np.float32)
+                rendered_image = getattr(cam, "rendered_image", None)
+                img_source = rendered_image if rendered_image is not None else cam.image
+                img = img_source.astype(np.float32)
                 validity = torch.tensor(True)
             else:
                 img = cam.image.astype(np.float32)
-                validity = torch.tensor(cam.real_valid)
+                validity = torch.tensor(getattr(cam, "real_valid", True))
 
             image_result["img"].append(img)
             validity_list.append(validity)

@@ -11,11 +11,13 @@ DEFAULT_INPUT_DIR = Path("/gs/bs/tga-RLA/qdeng/RAP/outputs/ref2d_eval_e10")
 DEFAULT_OUTPUT_DIR = DEFAULT_INPUT_DIR / "integrated"
 DEFAULT_SUBDIRS = (
     "baseline",
-    "shift_only",
-    "recovery_only",
-    "offset_recovery",
+    "shift_only_log",
+    "recovery_only_log",
+    "recovery_aux_only_log_l03",
+    "offset_recovery_log",
+    "offset_recovery_aux_log_l03",
 )
-ALLOWED_SUBDIRS = set(DEFAULT_SUBDIRS)
+DEFAULT_EXCLUDE_SUBDIRS = ("legacy", "integrated")
 DEFAULT_CROP = (0, 0, 0, 0)  # top, right, bottom, left
 DEFAULT_TRIM_PADDING = 18
 DEFAULT_TRIM_THRESHOLD = 8
@@ -56,8 +58,20 @@ def parse_args():
     parser.add_argument(
         "--subdirs",
         nargs="+",
-        default=list(DEFAULT_SUBDIRS),
-        help="Subfolders to merge, in display order.",
+        default=None,
+        help=(
+            "Subfolders to merge, in display order. "
+            "Default: auto-discover non-legacy visualization folders, ordered by known ref2d variants first."
+        ),
+    )
+    parser.add_argument(
+        "--exclude-subdirs",
+        nargs="+",
+        default=list(DEFAULT_EXCLUDE_SUBDIRS),
+        help=(
+            "Top-level input subfolders excluded during auto-discovery. "
+            f"Default: {' '.join(DEFAULT_EXCLUDE_SUBDIRS)}"
+        ),
     )
     parser.add_argument(
         "--crop",
@@ -145,13 +159,31 @@ def resolve_image_dir(subdir):
     return subdir
 
 
+def discover_subdirs(input_dir, output_dir, excluded):
+    excluded = set(excluded)
+    discovered = []
+    output_dir = output_dir.resolve()
+
+    for subdir in sorted(input_dir.iterdir()):
+        if not subdir.is_dir():
+            continue
+        if subdir.name in excluded:
+            continue
+        if subdir.resolve() == output_dir:
+            continue
+
+        image_dir = resolve_image_dir(subdir)
+        if image_dir.is_dir() and any(image_dir.glob("*.png")):
+            discovered.append(subdir.name)
+
+    known_order = [name for name in DEFAULT_SUBDIRS if name in discovered]
+    remaining = [name for name in discovered if name not in DEFAULT_SUBDIRS]
+    return known_order + remaining
+
+
 def collect_images(input_dir, subdirs, require_subdirs):
     image_map = {}
     for name in subdirs:
-        if name not in ALLOWED_SUBDIRS:
-            allowed = ", ".join(sorted(ALLOWED_SUBDIRS))
-            raise ValueError(f"Unsupported subdir label '{name}'. Allowed labels: {allowed}")
-
         subdir = input_dir / name
         image_dir = resolve_image_dir(subdir)
         if not image_dir.is_dir():
@@ -371,8 +403,14 @@ def make_canvas(
 
 def main():
     args = parse_args()
-    image_map = collect_images(args.input_dir, args.subdirs, args.require_subdirs)
-    subdirs = [name for name in args.subdirs if name in image_map]
+    subdirs_to_merge = args.subdirs
+    if subdirs_to_merge is None:
+        subdirs_to_merge = discover_subdirs(args.input_dir, args.output_dir, args.exclude_subdirs)
+        if not subdirs_to_merge:
+            raise RuntimeError(f"No non-excluded PNG visualization subfolders found under {args.input_dir}")
+
+    image_map = collect_images(args.input_dir, subdirs_to_merge, args.require_subdirs)
+    subdirs = [name for name in subdirs_to_merge if name in image_map]
     if not subdirs:
         raise RuntimeError(f"No image subfolders found under {args.input_dir}")
     tokens = tokens_to_merge(image_map, args.include_missing)

@@ -71,6 +71,10 @@ class SpatialCrossAttention(BaseModule):
         self.num_cams = num_cams
         self.output_proj = nn.Linear(embed_dims, embed_dims)
         self.batch_first = batch_first
+        # Opt-in debug capture. When set to a dict (e.g. by tools/dump_ref2d_real.py),
+        # the forward pass records per-camera query selection so deformable sampling
+        # points can be mapped back to BEV queries. Default None == no-op.
+        self.debug_sink = None
         self.init_weight()
 
     def init_weight(self):
@@ -150,6 +154,19 @@ class SpatialCrossAttention(BaseModule):
                 index_query_per_img = mask_per_img[0].sum(-1).nonzero().squeeze(-1)
                 indexes.append(index_query_per_img)
             max_len = max([len(each) for each in indexes])
+
+            if self.debug_sink is not None:
+                # Record the per-camera query selection so the deformable sampling
+                # points captured below can be scattered back to BEV queries.
+                self.debug_sink["indexes"] = [idx.detach().cpu() for idx in indexes]
+                self.debug_sink["max_len"] = int(max_len)
+                self.debug_sink["num_cams"] = int(self.num_cams)
+                self.debug_sink["reference_points_cam"] = reference_points_cam.detach().cpu()
+                self.debug_sink["bev_mask"] = bev_mask.detach().cpu()
+                if not self.full_attention:
+                    # Route the same sink into the deformable attention so it stores
+                    # sampling_locations / attention_weights into the same dict.
+                    self.deformable_attention.debug_sink = self.debug_sink
 
             # each camera only interacts with its corresponding BEV queries. This step can  greatly save GPU memory.
             queries_rebatch = query.new_zeros(
@@ -272,6 +289,9 @@ class MSDeformableAttention3D(BaseModule):
         self.attention_weights = nn.Linear(embed_dims,
                                            num_heads * num_levels * num_points)
         self.value_proj = nn.Linear(embed_dims, embed_dims)
+        # Opt-in debug capture (set to a dict to record sampling_locations /
+        # attention_weights for the C6 visualization). Default None == no-op.
+        self.debug_sink = None
 
         self.init_weights()
 
@@ -406,6 +426,12 @@ class MSDeformableAttention3D(BaseModule):
         #  sampling_locations.shape: bs, num_query, num_heads, num_levels, num_all_points, 2
         #  attention_weights.shape: bs, num_query, num_heads, num_levels, num_all_points
         #
+
+        if self.debug_sink is not None:
+            # bs here is (orig_bs * num_cams); the SCA wrapper stores `indexes` so
+            # these tensors can be scattered back to BEV queries for the C6 overlay.
+            self.debug_sink["sampling_locations"] = sampling_locations.detach().cpu()
+            self.debug_sink["attention_weights"] = attention_weights.detach().cpu()
 
         if torch.cuda.is_available() and value.is_cuda:
             if value.dtype == torch.float16:
