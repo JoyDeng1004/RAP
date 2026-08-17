@@ -14,6 +14,14 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from navsim.planning.training.alignment import (
+    build_task_mask,
+    compose_alignment_loss,
+    domain_alignment_loss,
+    mask_batch_mapping,
+    spatial_alignment_loss,
+    validate_alignment_config,
+)
 
 import math
 import torch
@@ -31,7 +39,14 @@ class AgentLightningModule(pl.LightningModule):
         """
         super().__init__()
         self.agent = agent
-        self.distill_feature = agent._config.distill_feature
+        config = agent._config
+        self.distill_feature = config.distill_feature
+        self.task_real_ratio = getattr(config, "task_real_ratio", 1.0)
+        self.use_spatial_align = getattr(config, "use_spatial_align", True)
+        self.use_global_align = getattr(config, "use_global_align", True)
+        self.domain_align_weight = getattr(config, "domain_align_weight", 0.1)
+        self.eval_input_modality = getattr(config, "eval_input_modality", "real")
+        validate_alignment_config(self.task_real_ratio, self.eval_input_modality)
         # self.real_feat = []
         # self.synth_feat = []
 
@@ -139,10 +154,15 @@ class AgentLightningModule(pl.LightningModule):
         :param logging_prefix: prefix where to log step
         :return: scalar loss
         """
-        self.agent._rap_model.progress = (self.current_epoch+1)/20
+        if self.training and self._trainer is not None:
+            total_steps = max(int(self.trainer.estimated_stepping_batches), 1)
+            denominator = max(total_steps - 1, 1)
+            self.agent._rap_model.progress = min(float(self.global_step) / denominator, 1.0)
 
         real_only = False
         features, targets = batch
+        features = dict(features)
+        targets = dict(targets)
         if features.get('frame_name') is not None:
             features.pop('frame_name')
     
@@ -177,7 +197,7 @@ class AgentLightningModule(pl.LightningModule):
                     rater_scores_list = []
                     prediction_trajectories_list = []
                     prediction_probabilities_list = []
-                    for i in range(batch_size):
+                    for i in range(int(real_valid_mask.sum())):
                         current_rfs = rfs_trajs[i]
                         current_rfs_len = rfs_len[i]
                         current_rfs_scores = rfs_scores[i]
@@ -219,35 +239,56 @@ class AgentLightningModule(pl.LightningModule):
 
             prediction = self.agent.forward(all_features,all_targets)
 
-            loss_dict = self.agent.compute_loss(all_features, all_targets, prediction)
+            # Planning supervision sees exactly one modality for every valid
+            # real/raster pair.  Alignment may still read both sides from the
+            # shared forward, but cannot change the task sample set.
+            task_mask, task_is_real = build_task_mask(
+                real_valid_mask,
+                self.task_real_ratio,
+            )
+            if not task_mask.any():
+                # Keep a graph-connected zero so Lightning/DDP can safely skip
+                # a batch that contains no valid paired supervision.
+                return prediction['trajectory'].sum() * 0.0
+            task_features = mask_batch_mapping(all_features, task_mask)
+            task_targets = mask_batch_mapping(all_targets, task_mask)
+            task_prediction = mask_batch_mapping(prediction, task_mask)
+            loss_dict = self.agent.compute_loss(task_features, task_targets, task_prediction)
+            loss_dict['task_loss'] = loss_dict['loss'].detach()
+            loss_dict['task_sample_count'] = task_mask.sum().to(dtype=torch.float32)
+            loss_dict['task_real_count'] = task_is_real.sum().to(dtype=torch.float32)
+            loss_dict['task_raster_count'] = (~task_is_real).sum().to(dtype=torch.float32)
 
             if real_valid_mask.any():
-                                                
-                domain_logits = prediction['domain_logits']
-                N_synth = batch_size       # synthetic 数量
-                N_real = domain_logits.shape[0] - N_synth
-
-                if N_synth == 0 or N_real == 0:
-                    domain_loss = torch.zeros((), device=device, dtype=torch.float32)
-                else:
-
-                    pos_weight = torch.tensor([N_synth / max(1, N_real)], device=domain_logits.device)
-                    bce_logits = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-
-                    domain_labels = torch.cat([
-                        torch.zeros(N_synth, device=domain_logits.device),  # synthetic=0
-                        torch.ones(N_real, device=domain_logits.device)     # real=1
-                    ], dim=0)
-                    domain_loss = bce_logits(domain_logits, domain_labels.float())
-
+                domain_loss = domain_alignment_loss(
+                    prediction['domain_logits'], batch_size, real_valid_mask
+                )
                 loss_dict['domain_loss'] = domain_loss
-                loss_dict['loss'] += 0.001*domain_loss
-                
-                bev_feature = prediction['bev_feature']
-                render_bev = bev_feature[:batch_size][real_valid_mask].detach()
-                real_bev = bev_feature[batch_size:]
-                loss_render = F.mse_loss(render_bev, real_bev)
-                loss_dict['loss'] += self.agent._config.distill_feature_weight * loss_render
+                raster_logits = prediction['domain_logits'][:batch_size][real_valid_mask]
+                real_logits = prediction['domain_logits'][batch_size:]
+                domain_correct = torch.cat(
+                    [raster_logits < 0, real_logits >= 0], dim=0
+                ).float().mean()
+                loss_dict['domain_accuracy'] = domain_correct
+                scheduler = getattr(self.agent._rap_model, "lambda_scheduler", None)
+                grl_coefficient = (
+                    scheduler(self.agent._rap_model.progress) if scheduler is not None else 0.0
+                )
+                loss_dict['grl_coefficient'] = torch.tensor(
+                    grl_coefficient, device=domain_loss.device
+                )
+                loss_render = spatial_alignment_loss(
+                    prediction['bev_feature'], batch_size, real_valid_mask
+                )
+                loss_dict['loss'] = compose_alignment_loss(
+                    task_loss=loss_dict['loss'],
+                    spatial_loss=loss_render,
+                    domain_loss=domain_loss,
+                    use_spatial_align=self.use_spatial_align,
+                    use_global_align=self.use_global_align,
+                    spatial_weight=self.agent._config.distill_feature_weight,
+                    domain_weight=self.domain_align_weight,
+                )
 
                 # self.real_feat.append(real_bev.detach().cpu().numpy()[:,1].mean(axis=-2))
                 # self.synth_feat.append(render_bev.detach().cpu().numpy()[:,1].mean(axis=-2))
@@ -257,7 +298,11 @@ class AgentLightningModule(pl.LightningModule):
                 
         for k, v in loss_dict.items():
             if v is not None:
-                self.log(f"{logging_prefix}/{k}", v, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=len(batch[0]) if k not in ['ade_real', 'loss_render'] else int(real_valid_mask.sum()))
+                self.log(
+                    f"{logging_prefix}/{k}", v, on_step=False, on_epoch=True,
+                    prog_bar=True, sync_dist=True,
+                    batch_size=max(int(real_valid_mask.sum()), 1),
+                )
         
         if self.global_step % 10 == 0 and self.global_rank == 0 and False:
             visualize_idx = 0
@@ -448,11 +493,16 @@ class AgentLightningModule(pl.LightningModule):
         frame_name = features.pop('frame_name')
         real_features = {k: v[real_valid_mask] for k, v in features.items() if k not in ['camera_valid','rendered_camera_feature']}
 
-        features.pop('camera_valid')
-        features['camera_feature'] = features.pop('rendered_camera_feature')
+        if self.eval_input_modality == "raster":
+            real_features['camera_feature'] = features['rendered_camera_feature'][real_valid_mask]
 
         prediction = self.agent.forward(real_features,None,return_score=True)
-        prediction['frame_name'] = frame_name
+        if isinstance(frame_name, torch.Tensor):
+            prediction['frame_name'] = frame_name[real_valid_mask]
+        else:
+            prediction['frame_name'] = [
+                item for item, keep in zip(frame_name, real_valid_mask.tolist()) if keep
+            ]
         
         return prediction
 

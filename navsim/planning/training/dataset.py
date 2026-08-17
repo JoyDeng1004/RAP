@@ -64,7 +64,7 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         if log_names is not None:
             self.log_names = [Path(log_name) for log_name in log_names if (self._cache_path / log_name).is_dir()]
         else:
-            self.log_names = [log_name for log_name in self._cache_path.iterdir()]
+            self.log_names = sorted(self._cache_path.iterdir())
         self.split = split
         self._feature_builders = feature_builders
         self._target_builders = target_builders
@@ -96,7 +96,7 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
                 target_builders=self._target_builders,
                 log_names=self.log_names,
             )
-        self.tokens = list(self._valid_cache_paths.keys())
+        self.tokens = sorted(self._valid_cache_paths.keys())
 
     def __len__(self) -> int:
         """
@@ -130,9 +130,9 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
 
         valid_cache_paths: Dict[str, Path] = {}
 
-        for log_name in tqdm(log_names, desc="Loading Valid Caches"):
+        for log_name in tqdm(sorted(log_names), desc="Loading Valid Caches"):
             log_path = cache_path / log_name
-            for token_path in log_path.iterdir():
+            for token_path in sorted(log_path.iterdir()):
                 found_caches: List[bool] = []
                 for builder in feature_builders + target_builders:
                     data_dict_path = token_path / (builder.get_unique_name() + ".gz")

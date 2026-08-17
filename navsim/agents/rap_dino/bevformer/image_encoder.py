@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 from mmdet.models.necks.fpn import FPN
-from transformers import AutoImageProcessor, AutoModel,pipeline
+from transformers import AutoImageProcessor, AutoModel, DINOv3ViTConfig, pipeline
 from torchvision import transforms
 from .grid_mask import GridMask, PatchGridMask
 import timm
@@ -27,7 +27,19 @@ class ImgEncoder(nn.Module):
         self.grid_mask = GridMask( True, True, rotate=1, offset=False, ratio=0.5, mode=1, prob=0.7)
         self.use_grid_mask = True
 
-        self.img_backbone = AutoModel.from_pretrained("facebook/dinov3-vith16plus-pretrain-lvd1689m")
+        if config.dino_init_from_pretrained:
+            self.img_backbone = AutoModel.from_pretrained(config.dino_model_name)
+        else:
+            dino_config = DINOv3ViTConfig(
+                patch_size=16,
+                hidden_size=1280,
+                intermediate_size=5120,
+                num_hidden_layers=32,
+                num_attention_heads=20,
+                use_gated_mlp=True,
+                num_register_tokens=4,
+            )
+            self.img_backbone = AutoModel.from_config(dino_config)
        # self.transform = make_transform(512)
                                    
         # original_mean = torch.tensor([[123.675, 116.28, 103.53]]).view(1,3,1,1)

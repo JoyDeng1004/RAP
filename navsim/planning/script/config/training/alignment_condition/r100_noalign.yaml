@@ -1,0 +1,8 @@
+# @package _global_
+alignment_condition_name: r100-noalign
+
+agent:
+  config:
+    use_spatial_align: false
+    use_global_align: false
+

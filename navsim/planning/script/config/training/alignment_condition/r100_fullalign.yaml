@@ -1,0 +1,8 @@
+# @package _global_
+alignment_condition_name: r100-fullalign
+
+agent:
+  config:
+    use_spatial_align: true
+    use_global_align: true
+

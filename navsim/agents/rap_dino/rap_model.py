@@ -1,4 +1,5 @@
 from typing import Dict
+import math
 import numpy as np
 import torch
 import torch.nn as nn
@@ -8,11 +9,13 @@ from .bevformer.image_encoder import ImgEncoder
 from .bevformer.transformer_decoder import MLP
 
 class LambdaScheduler:
-    def __init__(self, gamma=10.0):
+    def __init__(self, gamma=10.0, scale=0.1):
         self.gamma = gamma
+        self.scale = scale
     def __call__(self, progress: float) -> float:
-        # progress ∈ [0,1]
-        return 2.0 / (1.0 + torch.exp(torch.tensor(-self.gamma * progress))) - 1.0
+        """RAP GRL schedule, evaluated from optimizer-step progress."""
+        progress = min(max(float(progress), 0.0), 1.0)
+        return self.scale * (2.0 / (1.0 + math.exp(-self.gamma * progress)) - 1.0)
 
 # —— Gradient Reversal —— #
 class _GradReverse(torch.autograd.Function):
@@ -103,7 +106,9 @@ class RAPModel(nn.Module):
 
         self.scorer = Scorer(config)
         self.domain_classifier = DomainClassifier(config.tf_d_model)
-        self.lambda_scheduler = LambdaScheduler(gamma=10.0)
+        self.lambda_scheduler = LambdaScheduler(gamma=10.0, scale=0.1)
+        self.progress = 0.0
+        self.batch_size = 0
         self.b2d=config.b2d
 
     def forward(self, features: Dict[str, torch.Tensor],targets: Dict[str, torch.Tensor],return_score=False) -> Dict[str, torch.Tensor]:
@@ -145,7 +150,10 @@ class RAPModel(nn.Module):
         output["bev_feature"]=image_feature[0].permute(2,0,1,3)
 
         lambda_ = self.lambda_scheduler(self.progress)
-        feat = image_feature[0][[1]]   
+        # Pool the same four-camera feature representation used by the spatial
+        # loss.  The previous ``[[1]]`` silently restricted global alignment to
+        # CAM_F0 only.
+        feat = image_feature[0]
         feat_grad = feat[:,:,:self.batch_size].detach()          
         feat_no_grad = feat[:,:,self.batch_size:]   
         mixed_feat = torch.cat([feat_grad, feat_no_grad], dim=2)
@@ -167,6 +175,5 @@ class RAPModel(nn.Module):
             output["pdm_score"] = pdm_score
 
         return output
-
 
 

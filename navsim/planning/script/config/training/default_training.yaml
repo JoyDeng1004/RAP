@@ -21,7 +21,19 @@ cache_path: ${oc.env:NAVSIM_EXP_ROOT}/training_cache
 cache_path_perturbed: ${oc.env:NAVSIM_EXP_ROOT}/training_cache_perturbed
 cache_path_others: ${oc.env:NAVSIM_EXP_ROOT}/training_cache_others
 use_cache_without_dataset: false # load the training samples from the cache. scene-filter will be ignored
+rendered_sensor_blobs_path: null
+strict_camera_loading: false
 force_cache_computation: true
+include_auxiliary_datasets: true # legacy perturbed/other cache augmentation
+max_train_samples: null # deterministic prefix after token sorting
+max_val_samples: null
+require_camera_valid_subset: false
+subset_token_cache_path: null
+subset_token_manifest_path: null
+input_audit_path: null
+shuffle_train: true
+resume_training_checkpoint: null
+use_wandb_logger: true
 seed: 0
 index: 0
 

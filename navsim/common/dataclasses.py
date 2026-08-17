@@ -39,6 +39,7 @@ class Camera:
     intrinsics: Optional[npt.NDArray[np.float32]] = None
     distortion: Optional[npt.NDArray[np.float32]] = None
     real_valid: Optional[bool] = None
+    rendered_valid: Optional[bool] = None
 
 
 @dataclass
@@ -60,6 +61,8 @@ class Cameras:
         sensor_blobs_path: Path,
         camera_dict: Dict[str, Any],
         sensor_names: List[str],
+        rendered_sensor_blobs_path: Optional[Path] = None,
+        strict_camera_loading: bool = False,
     ) -> Cameras:
         """
         Load camera dataclass from dictionary.
@@ -74,18 +77,32 @@ class Cameras:
             camera_identifier = camera_name.lower()
             if camera_identifier in sensor_names:
                 image_path = sensor_blobs_path / camera_dict[camera_name]["data_path"]
-                rendered_image_path = Path(str(image_path).replace('sensor_blobs', 'rendered_sensor_blobs'))
+                rendered_image_path = (
+                    rendered_sensor_blobs_path / camera_dict[camera_name]["data_path"]
+                    if rendered_sensor_blobs_path is not None
+                    else None
+                )
 
                 try:
-                    rendered_image = np.array(Image.open(rendered_image_path))[20:-20]
-                except:
-                    rendered_image = np.zeros((1080, 1920, 3), dtype=np.float32)
+                    if rendered_image_path is None:
+                        raise FileNotFoundError("rendered_sensor_blobs_path was not provided")
+                    with Image.open(rendered_image_path) as image:
+                        rendered_image = np.asarray(image.convert("RGB"))[20:-20]
+                    rendered_valid = True
+                except (FileNotFoundError, OSError, ValueError):
+                    if strict_camera_loading:
+                        raise
+                    rendered_image = None
+                    rendered_valid = False
 
                 try:
-                    real_image = np.array(Image.open(image_path))
+                    with Image.open(image_path) as image:
+                        real_image = np.asarray(image.convert("RGB"))
                     real_valid = True
-                except:
-                    real_image = np.zeros_like(rendered_image)
+                except (FileNotFoundError, OSError, ValueError):
+                    if strict_camera_loading:
+                        raise
+                    real_image = None
                     real_valid = False
      
 
@@ -97,6 +114,7 @@ class Cameras:
                     intrinsics=camera_dict[camera_name]["cam_intrinsic"],
                     distortion=camera_dict[camera_name]["distortion"],
                     real_valid=real_valid,
+                    rendered_valid=rendered_valid,
                 )
             else:
                 data_dict[camera_identifier] = Camera()  # empty camera
@@ -173,6 +191,8 @@ class AgentInput:
         sensor_blobs_path: Path,
         num_history_frames: int,
         sensor_config: SensorConfig,
+        rendered_sensor_blobs_path: Optional[Path] = None,
+        strict_camera_loading: bool = False,
     ) -> AgentInput:
         """
         Load agent input from scene dictionary.
@@ -219,6 +239,8 @@ class AgentInput:
                     sensor_blobs_path=sensor_blobs_path,
                     camera_dict=scene_dict_list[frame_idx]["cams"],
                     sensor_names=sensor_names,
+                    rendered_sensor_blobs_path=rendered_sensor_blobs_path,
+                    strict_camera_loading=strict_camera_loading,
                 )
             )
 
@@ -444,6 +466,8 @@ class Scene:
         num_history_frames: int,
         num_future_frames: int,
         sensor_config: SensorConfig,
+        rendered_sensor_blobs_path: Optional[Path] = None,
+        strict_camera_loading: bool = False,
     ) -> Scene:
         """
         Load scene dataclass from scene dictionary list (for log loading).
@@ -479,14 +503,18 @@ class Scene:
                         sensor_blobs_path=sensor_blobs_path,
                         camera_dict=scene_dict_list[frame_idx]["cams"],
                         sensor_names=sensor_names,
-                )
+                        rendered_sensor_blobs_path=rendered_sensor_blobs_path,
+                        strict_camera_loading=strict_camera_loading,
+                    )
 
                     lidar = Lidar.from_paths(
                         sensor_blobs_path=sensor_blobs_path,
                         lidar_path=None,
                         sensor_names=sensor_names,
                     )
-                except:
+                except Exception:
+                    if strict_camera_loading:
+                        raise
                     assert frame_idx!=1
                     lidar=None
                     cameras=None

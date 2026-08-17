@@ -598,7 +598,10 @@ class RAPAgent(AbstractAgent):
             save_top_k=3,
             monitor='val/score',
             filename='{epoch}-{step}',
-            mode="max"
+            mode="max",
+            # val/score is produced by validation_step, so defer checkpoint
+            # ranking until validation has completed.
+            save_on_train_epoch_end=False,
             )
 
         return [checkpoint_cb]

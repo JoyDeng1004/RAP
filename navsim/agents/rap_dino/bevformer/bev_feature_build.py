@@ -26,14 +26,15 @@ def LoadMultiViewImageFromFiles(agent_input,synthetic=False):
 
     for cameras in agent_input.cameras[-1:]:
         for cam in [cameras.cam_b0, cameras.cam_f0, cameras.cam_l0,cameras.cam_r0]:#, cameras.cam_l1, cameras.cam_r1 cameras.cam_l1, cameras.cam_l2, , cameras.cam_r1, cameras.cam_r2
-            if cam.image is None:
+            selected_image = cam.rendered_image if synthetic else cam.image
+            if selected_image is None:
                 continue
             if synthetic:
-                img = cam.rendered_image.astype(np.float32)
-                validity = torch.tensor(True)
+                img = selected_image.astype(np.float32)
+                validity = torch.tensor(bool(cam.rendered_valid))
             else:
-                img = cam.image.astype(np.float32)
-                validity = torch.tensor(cam.real_valid)
+                img = selected_image.astype(np.float32)
+                validity = torch.tensor(bool(cam.real_valid))
 
             image_result["img"].append(img)
             validity_list.append(validity)
@@ -65,6 +66,8 @@ def LoadMultiViewImageFromFiles(agent_input,synthetic=False):
             cam_intrinsic=cam_intrinsics,
             lidar2cam=lidar2cam_rts,
         ))
+    if len(validity_list) != 4:
+        raise ValueError(f"Expected four camera views, got {len(validity_list)}")
     image_result["validity"] = torch.all(torch.stack(validity_list))
     return image_result
 

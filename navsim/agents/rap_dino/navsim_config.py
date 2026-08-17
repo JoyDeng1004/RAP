@@ -11,6 +11,17 @@ from nuplan.common.maps.abstract_map import SemanticMapLayer
 class RAPConfig:
     distill_feature: bool = False
     distill_feature_weight: float = 0.002
+    # Controlled Raster-to-Real experiment switches. ``distill_feature`` keeps
+    # selecting the paired forward path for backwards compatibility; these
+    # fields decide which samples supervise planning and which alignment terms
+    # contribute to the total loss.
+    task_real_ratio: float = 1.0
+    use_spatial_align: bool = True
+    use_global_align: bool = True
+    domain_align_weight: float = 0.1
+    eval_input_modality: str = "real"
+    dino_model_name: str = "facebook/dinov3-vith16plus-pretrain-lvd1689m"
+    dino_init_from_pretrained: bool = True
     b2d: bool = False
     cache_data: bool = False
     train_metric_cache_path: str = "./train_metric_cache"

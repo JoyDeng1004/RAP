@@ -1,0 +1,84 @@
+hydra:
+  run:
+    dir: ${output_dir}
+  output_subdir: ${output_dir}/code/hydra
+  searchpath:
+    - pkg://navsim.planning.script.config.common
+  job:
+    chdir: false
+
+defaults:
+  - default_common
+  - default_evaluation
+  - default_train_val_test_log_split
+  - agent: rap_agent
+  - dataset: navsim_dataset
+  - alignment_condition: r100_noalign
+  - override train_test_split: navmini
+  - _self_
+
+# Deterministic paired subset for pipeline validation. This is a
+# continued-alignment smoke diagnostic, not a clean causal comparison.
+alignment_condition_name: ???
+experiment_name: alignment-small-${alignment_condition_name}
+output_dir: ${hydra:runtime.cwd}/outputs/alignment_small/${experiment_name}/seed_${seed}
+seed: 0
+
+split: trainval
+waymo_raw_path: null
+use_cache_without_dataset: true
+force_cache_computation: false
+include_auxiliary_datasets: false
+cache_path: ${hydra:runtime.cwd}/outputs/alignment_small/paired_cache
+cache_path_perturbed: null
+cache_path_others: null
+max_train_samples: 32
+max_val_samples: 16
+require_camera_valid_subset: true
+subset_token_cache_path: null
+subset_token_manifest_path: ${hydra:runtime.cwd}/outputs/alignment_small/input_data/token_manifest.json
+input_audit_path: ${hydra:runtime.cwd}/outputs/alignment_small/input_data/input_audit.json
+shuffle_train: false
+resume_training_checkpoint: null
+use_wandb_logger: false
+
+agent:
+  # Its pretraining provenance is not sufficient for a clean causal result.
+  # Both smoke conditions nevertheless start from this exact same file/hash.
+  checkpoint_path: ${hydra:runtime.cwd}/ckpts/RAP_DINO_navsimv2.ckpt
+  config:
+    trajectory_sampling:
+      time_horizon: 5
+      interval_length: 0.5
+    train_metric_cache_path: ${hydra:runtime.cwd}/train_metric_cache
+    distill_feature: true
+    dino_init_from_pretrained: false
+    task_real_ratio: 1.0
+    eval_input_modality: real
+
+dataloader:
+  params:
+    batch_size: 1
+    num_workers: 2
+    pin_memory: true
+    prefetch_factor: 2
+    drop_last: false
+
+trainer:
+  params:
+    max_epochs: 2
+    check_val_every_n_epoch: 1
+    val_check_interval: 1.0
+    limit_train_batches: 8
+    limit_val_batches: 4
+    accelerator: gpu
+    devices: 1
+    strategy: auto
+    precision: 16-mixed
+    num_nodes: 1
+    num_sanity_val_steps: 0
+    fast_dev_run: false
+    accumulate_grad_batches: 1
+    gradient_clip_val: 0.0
+    gradient_clip_algorithm: norm
+    default_root_dir: ${output_dir}

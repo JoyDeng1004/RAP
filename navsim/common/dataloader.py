@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 
 from tqdm import tqdm
@@ -185,6 +185,8 @@ class SceneLoader:
         sensor_blobs_path: Path,
         scene_filter: SceneFilter,
         sensor_config: SensorConfig = SensorConfig.build_no_sensors(),
+        rendered_sensor_blobs_path: Optional[Path] = None,
+        strict_camera_loading: bool = False,
         enable_filter = False,
         index = None
     ):
@@ -197,6 +199,8 @@ class SceneLoader:
         """
         self.scene_frames_dicts = filter_scenes(data_path, scene_filter, enable_filter,index)
         self._sensor_blobs_path = sensor_blobs_path
+        self._rendered_sensor_blobs_path = rendered_sensor_blobs_path
+        self._strict_camera_loading = strict_camera_loading
         self._scene_filter = scene_filter
         self._sensor_config = sensor_config
 
@@ -233,6 +237,8 @@ class SceneLoader:
             num_history_frames=self._scene_filter.num_history_frames,
             num_future_frames=self._scene_filter.num_future_frames,
             sensor_config=self._sensor_config,
+            rendered_sensor_blobs_path=self._rendered_sensor_blobs_path,
+            strict_camera_loading=self._strict_camera_loading,
         )
 
     def get_agent_input_from_token(self, token: str) -> AgentInput:
@@ -247,6 +253,8 @@ class SceneLoader:
             self._sensor_blobs_path,
             num_history_frames=self._scene_filter.num_history_frames,
             sensor_config=self._sensor_config,
+            rendered_sensor_blobs_path=self._rendered_sensor_blobs_path,
+            strict_camera_loading=self._strict_camera_loading,
         )
 
     def get_tokens_list_per_log(self) -> Dict[str, List[str]]:
