@@ -4,8 +4,6 @@
 
 **执行约束**：严格按 Step 顺序，禁止跳步/并行/换序；验收全绿才进下一步；任一失败**立即停止**（§3：停止冻结数据版本）；`⚠️` 处必须等人工答复。每个 bash 块首行执行 `source /gs/bs/tga-RLA/qdeng/RAP/env/stage_a.env && cd $RAP_ROOT`（下称 **PRELUDE**）。本手册产出的 `source_checksums.json`、`hardlink_manifest.jsonl`、`baseline_*.txt`、`env_versions.json`、`epoch_token_checksums.jsonl` 是 Runbook 追加产物，不在规格书 §7 目录树内，不要据此认为规格书有遗漏。
 
----
-
 ## Phase -1：环境固化与前置校验
 
 ### Step -1.1 环境变量
@@ -54,8 +52,6 @@ find $NAVSIM_EXP_ROOT/train_metric_cache -type f | wc -l > $STAGE_A_OUT/metric_c
 
 **验收**：`$NAVSIM_EXP_ROOT/train_metric_cache` 存在且非空。
 > 生成位置由 `train_metric_caching.yaml` 的 `cache.cache_path=${oc.env:NAVSIM_EXP_ROOT}/train_metric_cache` 决定，而 `rap_agent.yaml` 默认读 `./train_metric_cache` —— **两者不是同一目录**，Step 3.2 与 5.2 必须显式覆写 `agent.config.train_metric_cache_path`。
-
----
 
 ## Phase 0：共用数据准备
 
@@ -119,8 +115,6 @@ find $STAGE_A_OUT/target_cache -name "rap_target.gz" | wc -l | tee $STAGE_A_OUT/
 > **不要传 `rendered_sensor_blobs_path=` / `strict_camera_loading=`**：该脚本建 SceneLoader 时不接收这两个参数（只有 [run_training.py:169](navsim/planning/script/run_training.py:169) 才传），且用 `SensorConfig.build_no_sensors()`。target 不读 raster，**不存在缺 B0 风险**。
 
 **验收**：`target_count.txt` ≥ **41,864**（= 34,468 + 7,396）；`ls $STAGE_A_OUT/target_cache | wc -l` = 54（若为子集须记录缺失 log）。
-
----
 
 ## Phase 1：Stage-A 数据构建
 
@@ -211,8 +205,6 @@ for split, count in [("train", int(os.environ["TRAIN_N"])), ("val", int(os.envir
 PY
 ```
 
----
-
 ## Phase 2：测试门槛（§7）
 
 **Step 2.1 泄漏检查** — 新建 `tests/training/test_stage_a_data_integrity.py`，断言：① Stage-A token 所属 log 与 `test_logs` 交集为空；② train ∩ val token = ∅；③ train ∩ val log = ∅；④ `$RASTER_4CAM_ROOT` 不含 test log 目录；⑤ `stage_a_token_manifest.json` 的 token 全在 `dataset_manifest.json` 中；⑥ train/val/test 的原始 drive（log 名日期+车号前缀）无交集。验收：`pytest tests/training/test_stage_a_data_integrity.py -q` 全绿。
@@ -232,8 +224,6 @@ python navsim/planning/script/run_pdm_score.py agent=constant_velocity_agent \
 ```
 
 **验收**：① 两个官方 baseline 的 PDMS 复现 v1.1 参考值；② 两次 constant-velocity 的逐 scene CSV 完全相同（确定性）；③ 输出列只含 `NC, DAC, EP, TTC, C, DDC, PDMS`，**不含任何 v2-only 指标**（TLC/LK/HC/EC/EPDMS）；④ evaluator resolved commit（预期前缀 `0811876`）记入 `evaluator_validation/v1_commit.txt`。
-
----
 
 ## Phase 3：训练准备
 
@@ -285,8 +275,6 @@ diff /tmp/resolved_noalign.yaml /tmp/resolved_fullalign.yaml
 
 逐项人工核对上表。确认 NoAlign 下 `use_spatial_align: false` 且 `use_global_align: false`；确认所有路径已展开为绝对路径而非字面 `$VAR`。**`diff` 输出必须只有 `alignment_condition_name / use_spatial_align / use_global_align / experiment_name / output_dir` 这几行——这是"唯一变量是 alignment loss"的直接证据。**
 
----
-
 ## Phase 4：Stage-A 训练（6 run）
 
 > 顺序约束：`seed 0 → 1 → 2`，每 seed 内 `noalign → fullalign`。禁止先跑完 3 个 noalign——那样无法早期发现配对不一致。
@@ -326,8 +314,6 @@ ls $NO/checkpoints $FU/checkpoints   # 应只有 last.ckpt
 ```
 
 第 2、3、5 项是**受控性的核心验收**，任一失败立即停止。全部完成后：`find $STAGE_A_OUT/training -name "last.ckpt" | wc -l` 必须是 **6**。
-
----
 
 ## Phase 5：Stage-A 评测
 
@@ -377,15 +363,11 @@ PY
 
 验收：产出 `$STAGE_A_OUT/summary/{stage_a_report.json, paired_deltas.csv}`；含 convergence gate 字段（读 6 run 的 val 曲线，最后一个 epoch 仍在明显趋势中则 `under_trained_regime: true`）；PDMS 的 delta CI 跨 0 时结论字段必须写 `"未能在 ≈1,800 steps 下检出效应"`，**禁止**写"alignment 无效"（§4 解释禁令）；因 5.3 阻塞须显式声明 `"仅有 v1 单侧证据，co-primary 不完整"`。
 
----
-
 ## Phase 6：Stage-B（本手册不展开）
 
 Stage-B 增量：补齐 54 log 全部 43,432 frame 的 B0（复用 Step 1.2 脚本去掉 count 限制）；raster root 同质性校验 `renderer_git_commit`/`map_version` 唯一（新脚本，依赖 Step 1.1 改造点 7 已写入这两个字段）；Stage-A ⊂ Stage-B 子集校验（新测试）；场景标签生成 9 标签 + 阈值冻结 + 200 条人工审计（完整新模块，尚不存在）；分层切片统计 + BH FDR（新脚本，尚不存在）。
 
 **Stage-B runbook 必须在 Stage-A 完成、且 Step 5.3 阻塞解除后另行编写。**
-
----
 
 ## 附录：阻塞项汇总
 
