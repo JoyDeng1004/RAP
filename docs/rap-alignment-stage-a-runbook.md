@@ -128,18 +128,16 @@ find $STAGE_A_OUT/target_cache -name "rap_target.gz" | wc -l | tee $STAGE_A_OUT/
 
 **现状（已核实）**：`_render_missing_back_camera` 在 F0 复现 MAE > 1.0 时**直接 `raise RuntimeError`**（[:248](navsim/planning/script/build_alignment_small_data.py:248)），整个 build 崩溃 —— **不是**静默塞进 `failures`（`failures` 收的是候选审计异常，见 [:397](navsim/planning/script/build_alignment_small_data.py:397)）。改造目标是把"崩溃"换成"按 §3 规则补抽"。
 
-| # | 改造点 |
-|---|---|
-| 1 | 新增 `--dry-run`：算出 `qualified_train / qualified_val` 后打印 JSON 并 return，不生成 B0、不写 cache/manifest |
-| 2 | `_render_missing_back_camera` 改为返回 `(record, ok, reason)` 而非 raise；`build()` 中把 `select_hash_round_robin` 结果作为初始选择，逐个做 B0 生成 + F0 校验 + 四相机复检，失败者移出、按**同一 hash 顺序**补入下一个未选过的候选，循环到集合大小 == 目标值 |
-| 3 | 新增 `--topup-manifest`，每行 `split, removed_token, removed_log, reason, replacement_token, replacement_log` |
-| 4 | 熔断：单 split 累计替换数 / 目标数 > 1% 抛异常终止（§3） |
-| 5 | 复检 camera_order 用四相机 `("CAM_B0","CAM_F0","CAM_L0","CAM_R0")`；B0 生成**前**初筛仍用三相机 |
-| 6 | 产物改名/新增（当前只写 `token_manifest.json`/`samples.csv`/`input_audit.json`，与 §7 目录树不符）：`token_manifest.json` → **`stage_a_token_manifest.json`**；新增 **`dataset_manifest.json`**（`{"train":[...],"val":[...]}`，每条含 `token, log_name, split, selection_hash, map_location`）；`back_camera_generation` 数组 → 逐行追加写 **`b0_generation_manifest.jsonl`**（append-only） |
-| 7 | B0 manifest 字段补全（§3 点名要求，当前 [:260](navsim/planning/script/build_alignment_small_data.py:260) 全缺）：`log_name, frame_token, camera, relative_path, source_metadata_sha256, renderer_git_commit, map_version, existing_f0_sha256, regenerated_f0_sha256, f0_mae_0_to_255, generated_b0_sha256, decoded_shape, dtype, min, max, mean, std, nonzero_fraction, finite_fraction` |
-| 8 | 禁止重复生成：当前 `if not back_path.exists()` 会静默复用已有 B0；改为已在 `b0_generation_manifest.jsonl` 中出现则抛异常（§3"同一 frame 不得生成两次，视为版本污染"） |
-| 9 | `_audit_candidate` 记录 `frame["map_location"]`，否则 §7 的"四 map_location 全覆盖"无从校验 |
-| 10 | `--raster-root` 指向 **4cam root**（B0 写回该 root）；若另加 `--dest-raster-root` 则 `--raster-root` 只读源 |
+1. 新增 `--dry-run`：算出 `qualified_train / qualified_val` 后打印 JSON 并 return，不生成 B0、不写 cache/manifest。
+2. **top-up 循环**：`_render_missing_back_camera` 改为返回 `(record, ok, reason)` 而非 raise；`build()` 把 `select_hash_round_robin` 结果作初始选择，逐个做 B0 生成 + F0 校验 + 四相机复检，失败者移出、按**同一 hash 顺序**补入下一个未选过的候选，循环到集合大小 == 目标值。
+3. 新增 `--topup-manifest`，每行 `split, removed_token, removed_log, reason, replacement_token, replacement_log`。
+4. 熔断：单 split 累计替换数 / 目标数 > 1% 抛异常终止（§3）。
+5. 复检 camera_order 用四相机 `("CAM_B0","CAM_F0","CAM_L0","CAM_R0")`；B0 生成**前**初筛仍用三相机。
+6. **产物改名/新增**（当前只写 `token_manifest.json`/`samples.csv`/`input_audit.json`，与 §7 目录树不符）：`token_manifest.json` → **`stage_a_token_manifest.json`**；新增 **`dataset_manifest.json`**（`{"train":[...],"val":[...]}`，每条含 `token, log_name, split, selection_hash, map_location`）；`back_camera_generation` 数组 → 逐行追加写 **`b0_generation_manifest.jsonl`**（append-only）。
+7. **B0 manifest 字段补全**（§3 点名要求，当前 [:260](navsim/planning/script/build_alignment_small_data.py:260) 全缺）：`log_name, frame_token, camera, relative_path, source_metadata_sha256, renderer_git_commit, map_version, existing_f0_sha256, regenerated_f0_sha256, f0_mae_0_to_255, generated_b0_sha256, decoded_shape, dtype, min, max, mean, std, nonzero_fraction, finite_fraction`。
+8. **禁止重复生成**：当前 `if not back_path.exists()` 会静默复用已有 B0；改为已在 `b0_generation_manifest.jsonl` 中出现则抛异常（§3"同一 frame 不得生成两次，视为版本污染"）。
+9. `_audit_candidate` 记录 `frame["map_location"]`，否则 §7 的"四 map_location 全覆盖"无从校验。
+10. `--raster-root` 指向 **4cam root**（B0 写回该 root）；若另加 `--dest-raster-root` 则 `--raster-root` 只读源。
 
 **验收**：`python -m pytest tests/training/test_alignment_experiment.py -q` 通过数不低于 `baseline_test_count.txt`，且新增 `test_topup_replaces_failed_token_in_hash_order`、`test_topup_aborts_above_one_percent`。
 
