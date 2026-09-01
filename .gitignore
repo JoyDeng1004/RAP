@@ -24,3 +24,5 @@ outputs/
 nuplan-devkit/
 process_data/scenarionet/
 train_metric_cache/
+navsim_one_scene/
+nuscenes_mini/
