@@ -1,0 +1,6 @@
+{"path":"/gs/bs/tga-RLA/qdeng/data/nuscenes","version":"v1.0-trainval","samples":34149,"scenes":850,"logs":68,"calibrated_sensors":10200,"sensors":12,"calibration_present":true}
+{"path":"/gs/bs/tga-RLA/qdeng/data/nuscenes","version":"v1.0-test","samples":6008,"scenes":150,"logs":15,"calibrated_sensors":1800,"sensors":12,"calibration_present":true}
+{"group":"samples","counts":{"CAM_BACK":40157,"CAM_BACK_LEFT":40157,"CAM_BACK_RIGHT":40157,"CAM_FRONT":40157,"CAM_FRONT_LEFT":40157,"CAM_FRONT_RIGHT":40157,"LIDAR_TOP":40157,"RADAR_BACK_LEFT":40155,"RADAR_BACK_RIGHT":40155,"RADAR_FRONT":40154,"RADAR_FRONT_LEFT":40155,"RADAR_FRONT_RIGHT":40155}}
+{"group":"sweeps","counts":{"CAM_BACK":161453,"CAM_BACK_LEFT":160856,"CAM_BACK_RIGHT":164266,"CAM_FRONT":164166,"CAM_FRONT_LEFT":164274,"CAM_FRONT_RIGHT":163881,"LIDAR_TOP":350160,"RADAR_BACK_LEFT":185467,"RADAR_BACK_RIGHT":156460,"RADAR_FRONT":188562,"RADAR_FRONT_LEFT":191133,"RADAR_FRONT_RIGHT":190435}}
+{"local_copy":"/gs/bs/tga-RLA/qdeng/RAP/nuscenes-mini/nuscenes","is_symlink":false,"mini_sample_records":404,"sample_token_intersection_with_trainval":404,"mini_tokens_outside_trainval":0,"camera_sample_files_per_channel":0,"camera_sweep_files_per_channel":0,"status":"INCOMPLETE_RGB_COPY"}
+{"recursive_size_scan":{"status":"ABORTED_AFTER_GT_10_MINUTES","bytes":null,"mtime_range":null},"core_status":"PASS_WITH_LIMITATION"}
