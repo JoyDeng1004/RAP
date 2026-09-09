@@ -1,7 +1,13 @@
 .cache
 .nv
 .config
+.DS_Store
+.pnpm-store/
+.venv/
+node_modules/
+env/
 exp/*
+*.o[0-9]*
 *.pyc
 *.egg-info
 scripts/
@@ -15,6 +21,9 @@ wandb
 *.jpg
 *.png
 *.ckpt
+*.pth
+navsim_one_scene/
+nuscenes-mini/
 MySubmission
 *.json
 *.pkl

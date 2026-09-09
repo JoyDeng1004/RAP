@@ -295,6 +295,25 @@ class AgentLightningModule(pl.LightningModule):
                 ade_real = torch.mean(torch.norm(prediction['trajectory'][batch_size:,:,:2] - all_targets['trajectory'][batch_size:,:,:2], dim=-1))
                 loss_dict['ade_real'] = ade_real
                 loss_dict['loss_render'] = loss_render
+
+                # Preserve the values that actually participated in this step.
+                # The rank-zero callback serializes these after the batch; it
+                # must not reconstruct GRL progress or loss weights later.
+                spatial_weight = (
+                    float(self.agent._config.distill_feature_weight)
+                    if self.use_spatial_align else 0.0
+                )
+                global_weight = float(self.domain_align_weight) if self.use_global_align else 0.0
+                self._last_loss_components = {
+                    "progress_p": float(self.agent._rap_model.progress),
+                    "task_loss": loss_dict["task_loss"].detach(),
+                    "spatial_loss_raw": loss_render.detach(),
+                    "global_loss_raw": domain_loss.detach(),
+                    "spatial_weight_effective": spatial_weight,
+                    "global_weight_effective": global_weight,
+                    "grl_lambda": loss_dict["grl_coefficient"].detach(),
+                    "total_loss": loss_dict["loss"].detach(),
+                }
                 
         for k, v in loss_dict.items():
             if v is not None:

@@ -7,6 +7,80 @@ from torchvision import transforms
 from .grid_mask import GridMask, PatchGridMask
 import timm
 import torch.nn.functional as F
+from pathlib import Path
+import os
+
+
+def _dinov3_config():
+    return DINOv3ViTConfig(
+        patch_size=16,
+        hidden_size=1280,
+        intermediate_size=5120,
+        num_hidden_layers=32,
+        num_attention_heads=20,
+        use_gated_mlp=True,
+        num_register_tokens=4,
+    )
+
+
+def _convert_meta_dinov3_state_dict(state_dict):
+    """Map the official Meta DINOv3 ViT-H+ checkpoint to transformers names."""
+    converted = {
+        "embeddings.cls_token": state_dict["cls_token"],
+        "embeddings.mask_token": state_dict["mask_token"].reshape(1, 1, -1),
+        "embeddings.register_tokens": state_dict["storage_tokens"],
+        "embeddings.patch_embeddings.weight": state_dict["patch_embed.proj.weight"],
+        "embeddings.patch_embeddings.bias": state_dict["patch_embed.proj.bias"],
+        "norm.weight": state_dict["norm.weight"],
+        "norm.bias": state_dict["norm.bias"],
+    }
+    for index in range(32):
+        source = f"blocks.{index}."
+        target = f"layer.{index}."
+        q_weight, k_weight, v_weight = state_dict[source + "attn.qkv.weight"].chunk(3, dim=0)
+        q_bias, k_bias, v_bias = state_dict[source + "attn.qkv.bias"].chunk(3, dim=0)
+        if torch.count_nonzero(k_bias):
+            raise ValueError(f"official DINOv3 block {index} has a nonzero key bias")
+        converted.update(
+            {
+                target + "norm1.weight": state_dict[source + "norm1.weight"],
+                target + "norm1.bias": state_dict[source + "norm1.bias"],
+                target + "attention.q_proj.weight": q_weight,
+                target + "attention.q_proj.bias": q_bias,
+                target + "attention.k_proj.weight": k_weight,
+                target + "attention.v_proj.weight": v_weight,
+                target + "attention.v_proj.bias": v_bias,
+                target + "attention.o_proj.weight": state_dict[source + "attn.proj.weight"],
+                target + "attention.o_proj.bias": state_dict[source + "attn.proj.bias"],
+                target + "layer_scale1.lambda1": state_dict[source + "ls1.gamma"],
+                target + "norm2.weight": state_dict[source + "norm2.weight"],
+                target + "norm2.bias": state_dict[source + "norm2.bias"],
+                target + "mlp.gate_proj.weight": state_dict[source + "mlp.w1.weight"],
+                target + "mlp.gate_proj.bias": state_dict[source + "mlp.w1.bias"],
+                target + "mlp.up_proj.weight": state_dict[source + "mlp.w2.weight"],
+                target + "mlp.up_proj.bias": state_dict[source + "mlp.w2.bias"],
+                target + "mlp.down_proj.weight": state_dict[source + "mlp.w3.weight"],
+                target + "mlp.down_proj.bias": state_dict[source + "mlp.w3.bias"],
+                target + "layer_scale2.lambda1": state_dict[source + "ls2.gamma"],
+            }
+        )
+    return converted
+
+
+def _load_pretrained_dinov3(config):
+    local_checkpoint = os.environ.get("DINO_PRETRAINED_CKPT")
+    if not local_checkpoint:
+        return AutoModel.from_pretrained(config.dino_model_name)
+    path = Path(local_checkpoint)
+    if not path.is_file():
+        raise FileNotFoundError(f"DINO_PRETRAINED_CKPT does not exist: {path}")
+    model = AutoModel.from_config(_dinov3_config())
+    meta_state = torch.load(path, map_location="cpu", weights_only=True)
+    converted = _convert_meta_dinov3_state_dict(meta_state)
+    missing, unexpected = model.load_state_dict(converted, strict=False)
+    if missing or unexpected:
+        raise RuntimeError(f"DINOv3 conversion mismatch: missing={missing}, unexpected={unexpected}")
+    return model
 
 
 
@@ -28,17 +102,9 @@ class ImgEncoder(nn.Module):
         self.use_grid_mask = True
 
         if config.dino_init_from_pretrained:
-            self.img_backbone = AutoModel.from_pretrained(config.dino_model_name)
+            self.img_backbone = _load_pretrained_dinov3(config)
         else:
-            dino_config = DINOv3ViTConfig(
-                patch_size=16,
-                hidden_size=1280,
-                intermediate_size=5120,
-                num_hidden_layers=32,
-                num_attention_heads=20,
-                use_gated_mlp=True,
-                num_register_tokens=4,
-            )
+            dino_config = _dinov3_config()
             self.img_backbone = AutoModel.from_config(dino_config)
        # self.transform = make_transform(512)
                                    

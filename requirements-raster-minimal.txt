@@ -1,0 +1,6 @@
+# Minimal runtime for process_data/helpers/renderer.py on local macOS.
+# Training, CUDA, Ray, MMCV, MMDetection, and nuPlan batch-processing
+# dependencies are intentionally excluded.
+numpy==2.5.2
+opencv-python-headless==5.0.0.93
+tqdm==4.70.0

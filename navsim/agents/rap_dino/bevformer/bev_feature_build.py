@@ -2,6 +2,14 @@ import numpy as np
 from .transform3d import PhotoMetricDistortionMultiViewImage ,NormalizeMultiviewImage \
     ,RandomScaleImageMultiViewImage ,PadMultiViewImage
 import torch
+import json
+import logging
+import os
+from pathlib import Path
+
+
+logger = logging.getLogger(__name__)
+_RENDERED_PLACEHOLDER_LOGGED_PATHS = set()
 
 PhotoMetricDistortionMultiViewImage = PhotoMetricDistortionMultiViewImage(
     brightness_delta=32,
@@ -73,17 +81,47 @@ def LoadMultiViewImageFromFiles(agent_input,synthetic=False):
 
 
 
-def _get_bev_feature( agent_input, training: bool=False):
-    synthetic_image_result=LoadMultiViewImageFromFiles(agent_input,synthetic=True)
+def _rendered_view_count(agent_input) -> int:
+    cameras = agent_input.cameras[-1]
+    return sum(
+        cam.rendered_image is not None
+        for cam in (cameras.cam_b0, cameras.cam_f0, cameras.cam_l0, cameras.cam_r0)
+    )
+
+
+def _record_rendered_placeholder_once(log_path: str) -> None:
+    if not log_path or log_path in _RENDERED_PLACEHOLDER_LOGGED_PATHS:
+        return
+    path = Path(log_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "event": "all_rendered_views_missing_placeholder_used",
+        "pid": os.getpid(),
+        "rendered_camera_feature": "zeros_like(real_camera_feature)",
+    }, indent=2, sort_keys=True) + "\n")
+    logger.warning("All four rendered views are missing; using the pdm-scoring-only zero placeholder. Record: %s", path)
+    _RENDERED_PLACEHOLDER_LOGGED_PATHS.add(log_path)
+
+
+def _get_bev_feature(
+    agent_input,
+    training: bool = False,
+    allow_missing_rendered_placeholder: bool = False,
+    rendered_placeholder_log_path: str = "",
+):
+    rendered_view_count = _rendered_view_count(agent_input)
+    use_placeholder = rendered_view_count == 0 and allow_missing_rendered_placeholder
+    synthetic_image_result = None if use_placeholder else LoadMultiViewImageFromFiles(agent_input,synthetic=True)
     real_image_result=LoadMultiViewImageFromFiles(agent_input,synthetic=False)
     # if training:
     #     image_result = PhotoMetricDistortionMultiViewImage(image_result)
-    image_result = synthetic_image_result
-    image_result = NormalizeMultiviewImage(image_result)
-    image_result = RandomScaleImageMultiViewImage(image_result)  # 432,768
-    image_result = PadMultiViewImage(image_result)  # 448,768
-    imgs = [img.transpose(2, 0, 1) for img in image_result['img']]
-    synthetic_camera_feature = torch.tensor(np.ascontiguousarray(np.stack(imgs, axis=0)))
+    if synthetic_image_result is not None:
+        image_result = synthetic_image_result
+        image_result = NormalizeMultiviewImage(image_result)
+        image_result = RandomScaleImageMultiViewImage(image_result)  # 432,768
+        image_result = PadMultiViewImage(image_result)  # 448,768
+        imgs = [img.transpose(2, 0, 1) for img in image_result['img']]
+        synthetic_camera_feature = torch.tensor(np.ascontiguousarray(np.stack(imgs, axis=0)))
 
     image_result = real_image_result
     image_result = NormalizeMultiviewImage(image_result)
@@ -92,6 +130,9 @@ def _get_bev_feature( agent_input, training: bool=False):
     imgs = [img.transpose(2, 0, 1) for img in image_result['img']]
     real_camera_feature = torch.tensor(np.ascontiguousarray(np.stack(imgs, axis=0)))
 
+    if use_placeholder:
+        synthetic_camera_feature = torch.zeros_like(real_camera_feature)
+        _record_rendered_placeholder_once(rendered_placeholder_log_path)
 
     features = {"camera_feature": real_camera_feature,
                 "camera_valid":real_image_result["validity"],

@@ -282,16 +282,17 @@ class Dataset(torch.utils.data.Dataset):
         """
 
         scene = self._scene_loader.get_scene_from_token(token)
-        agent_input = scene.get_agent_input()
 
         metadata = scene.scene_metadata
         token_path = self._cache_path / metadata.log_name / metadata.initial_token
         os.makedirs(token_path, exist_ok=True)
 
-        for builder in self._feature_builders:
-            data_dict_path = token_path / (builder.get_unique_name() + ".gz")
-            data_dict = builder.compute_features(agent_input)
-            dump_feature_target_to_pickle(data_dict_path, data_dict)
+        if self._feature_builders:
+            agent_input = scene.get_agent_input()
+            for builder in self._feature_builders:
+                data_dict_path = token_path / (builder.get_unique_name() + ".gz")
+                data_dict = builder.compute_features(agent_input)
+                dump_feature_target_to_pickle(data_dict_path, data_dict)
 
         for builder in self._target_builders:
             data_dict_path = token_path / (builder.get_unique_name() + ".gz")

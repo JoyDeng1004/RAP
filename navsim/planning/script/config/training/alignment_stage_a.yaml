@@ -1,0 +1,89 @@
+hydra:
+  run:
+    dir: ${output_dir}
+  output_subdir: ${output_dir}/code/hydra
+  searchpath:
+    - pkg://navsim.planning.script.config.common
+  job:
+    chdir: false
+
+defaults:
+  - default_common
+  - default_evaluation
+  - default_train_val_test_log_split
+  - agent: rap_agent
+  - dataset: navsim_dataset
+  - alignment_condition: r100_noalign
+  - override train_test_split: paired_trainval
+  - _self_
+
+alignment_condition_name: ???
+experiment_name: stage-a-${alignment_condition_name}
+experiment_uid: seed_${seed}
+output_dir: ${oc.env:STAGE_A_OUT}/training/${alignment_condition_name}/seed_${seed}
+seed: 0
+
+split: trainval
+waymo_raw_path: null
+use_cache_without_dataset: true
+force_cache_computation: false
+include_auxiliary_datasets: false
+cache_path: ${oc.env:STAGE_A_OUT}/paired_cache
+cache_path_perturbed: null
+cache_path_others: null
+max_train_samples: null
+max_val_samples: null
+require_camera_valid_subset: true
+subset_token_cache_path: null
+subset_token_manifest_path: ${oc.env:STAGE_A_OUT}/input_data/stage_a_token_manifest.json
+input_audit_path: ${oc.env:STAGE_A_OUT}/input_data/input_audit.json
+shuffle_train: true
+shuffle_val: false
+exact_distributed_coverage: true
+final_step_checkpoint_only: true
+resume_training_checkpoint: null
+use_wandb_logger: false
+
+agent:
+  checkpoint_path: ${oc.env:STAGE_A_OUT}/init_checkpoints/seed_${seed}.ckpt
+  lr: 1e-4
+  config:
+    trajectory_sampling:
+      time_horizon: 5
+      interval_length: 0.5
+    train_metric_cache_path: ${oc.env:NAVSIM_EXP_ROOT}/train_metric_cache
+    distill_feature: true
+    distill_feature_weight: 0.002
+    domain_align_weight: 0.1
+    dino_init_from_pretrained: false
+    task_real_ratio: 1.0
+    eval_input_modality: real
+    tf_dropout: 0
+
+dataloader:
+  params:
+    batch_size: 32
+    num_workers: 8
+    pin_memory: true
+    prefetch_factor: 2
+    drop_last: false
+
+trainer:
+  params:
+    max_epochs: 20
+    check_val_every_n_epoch: 1
+    val_check_interval: 1.0
+    limit_train_batches: 1.0
+    limit_val_batches: 1.0
+    accelerator: gpu
+    devices: 4
+    strategy: ddp_find_unused_parameters_true
+    precision: 16-mixed
+    num_nodes: 1
+    num_sanity_val_steps: 0
+    fast_dev_run: false
+    accumulate_grad_batches: 1
+    gradient_clip_val: 0.0
+    gradient_clip_algorithm: norm
+    default_root_dir: ${output_dir}
+    use_distributed_sampler: false

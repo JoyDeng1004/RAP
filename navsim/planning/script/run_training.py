@@ -4,6 +4,8 @@ import logging
 import json
 import subprocess
 import hashlib
+import math
+import os
 
 import hydra
 from hydra.utils import instantiate
@@ -18,7 +20,9 @@ from navsim.common.dataloader import SceneLoader
 from navsim.planning.training.dataset import CacheOnlyDataset, Dataset, WaymoCacheOnlyDataset
 from navsim.planning.training.agent_lightning_module import AgentLightningModule
 from pytorch_lightning.loggers import CSVLogger, WandbLogger
+from pytorch_lightning.callbacks import Callback, ModelCheckpoint
 from omegaconf import OmegaConf
+from navsim.planning.training.samplers import ExactDistributedSampler
 
 import random
 from torch.utils.data import Subset
@@ -27,6 +31,115 @@ logger = logging.getLogger(__name__)
 
 CONFIG_PATH = "config/training"
 CONFIG_NAME = "default_training"
+
+
+def _json_number(value):
+    if hasattr(value, "detach"):
+        value = value.detach().cpu().item()
+    return float(value)
+
+
+class EpochTokenChecksumCallback(Callback):
+    """Record the frozen global train and validation token orders per epoch."""
+
+    def __init__(self, output_dir, train_sampler, val_sampler):
+        self.path = Path(output_dir) / "epoch_token_checksums.jsonl"
+        self.train_sampler = train_sampler
+        self.val_sampler = val_sampler
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        epoch = int(trainer.current_epoch)
+        self.train_sampler.set_epoch(epoch)
+        self.val_sampler.set_epoch(epoch)
+        if not trainer.is_global_zero:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a", encoding="utf-8") as handle:
+            for stage, sampler in (("train", self.train_sampler), ("val", self.val_sampler)):
+                tokens = sampler.global_token_order(epoch)
+                digest = hashlib.sha256()
+                for token in tokens:
+                    encoded = token.encode("utf-8")
+                    digest.update(len(encoded).to_bytes(4, "big"))
+                    digest.update(encoded)
+                row = {
+                    "epoch": epoch,
+                    "stage": stage,
+                    "num_tokens": len(tokens),
+                    "sequence_sha256": digest.hexdigest(),
+                }
+                handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+class LossComponentCallback(Callback):
+    """Persist each optimizer step's live loss weights and GRL coefficient."""
+
+    def __init__(self, output_dir):
+        self.path = Path(output_dir) / "loss_components.jsonl"
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        if not trainer.is_global_zero or not hasattr(pl_module, "_last_loss_components"):
+            return
+        values = pl_module._last_loss_components
+        row = {
+            "epoch": int(trainer.current_epoch),
+            "global_step": int(trainer.global_step),
+            **{key: _json_number(value) for key, value in values.items()},
+        }
+        reconstructed = (
+            row["task_loss"]
+            + row["spatial_weight_effective"] * row["spatial_loss_raw"]
+            + row["global_weight_effective"] * row["global_loss_raw"]
+        )
+        if abs(row["total_loss"] - reconstructed) > 1e-6:
+            raise RuntimeError(
+                f"loss component reconstruction failed: {row['total_loss']} != {reconstructed}"
+            )
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def _distributed_topology(cfg):
+    devices = int(cfg.trainer.params.devices)
+    nodes = int(cfg.trainer.params.num_nodes)
+    world_size = devices * nodes
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    node_rank = int(os.environ.get("NODE_RANK", 0))
+    return world_size, node_rank * devices + local_rank
+
+
+def _assert_equal_batch_counts(dataset_size, world_size, batch_size, label):
+    shard_sizes = [max(math.ceil((dataset_size - rank) / world_size), 0) for rank in range(world_size)]
+    batch_counts = [math.ceil(size / batch_size) for size in shard_sizes]
+    if len(set(batch_counts)) != 1:
+        raise RuntimeError(
+            f"{label} exact shards have unequal batch counts: sizes={shard_sizes}, batches={batch_counts}"
+        )
+
+
+def _build_training_callbacks(cfg, agent, train_sampler=None, val_sampler=None):
+    """Build Stage-A callbacks from the run-level output directory."""
+    callbacks = list(agent.get_training_callbacks())
+    if bool(getattr(cfg, "final_step_checkpoint_only", False)):
+        callbacks = [callback for callback in callbacks if not isinstance(callback, ModelCheckpoint)]
+        callbacks.append(
+            ModelCheckpoint(
+                dirpath=Path(cfg.output_dir) / "checkpoints",
+                save_last=True,
+                save_top_k=0,
+            )
+        )
+    if train_sampler is not None:
+        if val_sampler is None:
+            raise ValueError("val_sampler is required when train_sampler is provided")
+        callbacks.extend(
+            [
+                EpochTokenChecksumCallback(cfg.output_dir, train_sampler, val_sampler),
+                LossComponentCallback(cfg.output_dir),
+            ]
+        )
+    return callbacks
 
 
 def _limit_dataset(
@@ -323,11 +436,29 @@ def main(cfg: DictConfig) -> None:
     _write_reproducibility_manifest(cfg, train_data, val_data)
 
     logger.info("Building Datasets")
+    train_sampler = val_sampler = None
+    if bool(getattr(cfg, "exact_distributed_coverage", False)):
+        world_size, rank = _distributed_topology(cfg)
+        batch_size = int(cfg.dataloader.params.batch_size)
+        _assert_equal_batch_counts(len(train_data), world_size, batch_size, "train")
+        _assert_equal_batch_counts(len(val_data), world_size, batch_size, "val")
+        train_sampler = ExactDistributedSampler(
+            train_data, world_size, rank, seed=int(cfg.seed), shuffle=bool(cfg.shuffle_train),
+            tokens=_dataset_tokens(train_data),
+        )
+        val_sampler = ExactDistributedSampler(
+            val_data, world_size, rank, seed=int(cfg.seed), shuffle=bool(cfg.shuffle_val),
+            tokens=_dataset_tokens(val_data),
+        )
     train_dataloader = DataLoader(
-        train_data, **cfg.dataloader.params, shuffle=bool(cfg.shuffle_train)
+        train_data, **cfg.dataloader.params,
+        shuffle=False if train_sampler is not None else bool(cfg.shuffle_train),
+        sampler=train_sampler,
     )
     logger.info("Num training samples: %d", len(train_data))
-    val_dataloader = DataLoader(val_data, **cfg.dataloader.params, shuffle=False)
+    val_dataloader = DataLoader(
+        val_data, **cfg.dataloader.params, shuffle=False, sampler=val_sampler
+    )
     logger.info("Num validation samples: %d", len(val_data))
 
     logger.info("Building Trainer")
@@ -336,9 +467,10 @@ def main(cfg: DictConfig) -> None:
         experiment_loggers.append(
             WandbLogger(project="rap", name=cfg.experiment_name, id=cfg.experiment_name)
         )
+    callbacks = _build_training_callbacks(cfg, agent, train_sampler, val_sampler)
     trainer = pl.Trainer(
         **cfg.trainer.params,
-        callbacks=agent.get_training_callbacks(),
+        callbacks=callbacks,
         logger=experiment_loggers,
     )
 

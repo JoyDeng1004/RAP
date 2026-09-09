@@ -32,6 +32,22 @@ CONFIG_PATH = "config/pdm_scoring"
 CONFIG_NAME = "default_run_pdm_score"
 
 
+def _configure_rendered_placeholder(agent: AbstractAgent, cfg: DictConfig, thread_id: str, node_id: int) -> None:
+    """Enable the placeholder only for RAP agents instantiated by the PDM scoring entrypoint."""
+    agent_config = getattr(agent, "_config", None)
+    if agent_config is None:
+        return
+    enabled = bool(cfg.get("allow_missing_rendered_placeholder", False))
+    agent_config.allow_missing_rendered_placeholder = enabled
+    if enabled:
+        log_path = (
+            Path(cfg.output_dir)
+            / "rendered_placeholder_workers"
+            / f"worker-{node_id}-{thread_id}.json"
+        )
+        agent_config.rendered_placeholder_log_path = str(log_path)
+
+
 def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[Dict[str, Any]]:
     """
     Helper function to run PDMS evaluation in.
@@ -41,8 +57,8 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
     thread_id = str(uuid.uuid4())
     logger.info(f"Starting worker in thread_id={thread_id}, node_id={node_id}")
 
-    log_names = [a["log_file"] for a in args]
-    tokens = [t for a in args for t in a["tokens"]]
+    log_names = sorted(set(a["log_file"] for a in args))
+    tokens = sorted(set(t for a in args for t in a["tokens"]))
     cfg: DictConfig = args[0]["cfg"]
 
     simulator: PDMSimulator = instantiate(cfg.simulator)
@@ -51,6 +67,7 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
         simulator.proposal_sampling == scorer.proposal_sampling
     ), "Simulator and scorer proposal sampling has to be identical"
     agent: AbstractAgent = instantiate(cfg.agent)
+    _configure_rendered_placeholder(agent, cfg, thread_id, node_id)
     agent.initialize()
 
     metric_cache_loader = MetricCacheLoader(Path(cfg.metric_cache_path))
@@ -64,7 +81,7 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
         sensor_config=agent.get_sensor_config(),
     )
 
-    tokens_to_evaluate = list(set(scene_loader.tokens) & set(metric_cache_loader.tokens))
+    tokens_to_evaluate = sorted(set(scene_loader.tokens) & set(metric_cache_loader.tokens))
     pdm_results: List[Dict[str, Any]] = []
     for idx, (token) in enumerate(tokens_to_evaluate):
         logger.info(
@@ -120,7 +137,7 @@ def main(cfg: DictConfig) -> None:
     )
     metric_cache_loader = MetricCacheLoader(Path(cfg.metric_cache_path))
 
-    tokens_to_evaluate = list(set(scene_loader.tokens) & set(metric_cache_loader.tokens))
+    tokens_to_evaluate = sorted(set(scene_loader.tokens) & set(metric_cache_loader.tokens))
     num_missing_metric_cache_tokens = len(set(scene_loader.tokens) - set(metric_cache_loader.tokens))
     num_unused_metric_cache_tokens = len(set(metric_cache_loader.tokens) - set(scene_loader.tokens))
     if num_missing_metric_cache_tokens > 0:
@@ -132,9 +149,9 @@ def main(cfg: DictConfig) -> None:
         {
             "cfg": cfg,
             "log_file": log_file,
-            "tokens": tokens_list,
+            "tokens": sorted(set(tokens_list)),
         }
-        for log_file, tokens_list in scene_loader.get_tokens_list_per_log().items()
+        for log_file, tokens_list in sorted(scene_loader.get_tokens_list_per_log().items())
     ]
     from nuplan.planning.utils.multithreading.worker_pool import Task
     from nuplan.planning.utils.multithreading.worker_ray import RayDistributed
@@ -155,25 +172,34 @@ def main(cfg: DictConfig) -> None:
     res_nested = pool.map(task, batches)     # List[List[pd.DataFrame]]
     score_rows = [df for part in res_nested for df in part]
 
-    pdm_score_df = pd.DataFrame(score_rows)
+    field_mapping = {
+        "no_at_fault_collisions": "NC",
+        "drivable_area_compliance": "DAC",
+        "ego_progress": "EP",
+        "time_to_collision_within_bound": "TTC",
+        "comfort": "C",
+        "driving_direction_compliance": "DDC",
+        "score": "PDMS",
+    }
+    pdm_score_df = pd.DataFrame(score_rows).rename(columns=field_mapping)
+    output_columns = ["token", "valid", "NC", "DAC", "EP", "TTC", "C", "DDC", "PDMS"]
+    pdm_score_df = pdm_score_df.reindex(columns=output_columns).sort_values("token").reset_index(drop=True)
     num_sucessful_scenarios = pdm_score_df["valid"].sum()
     num_failed_scenarios = len(pdm_score_df) - num_sucessful_scenarios
-    average_row = pdm_score_df.drop(columns=["token", "valid"]).mean(skipna=True)
-    average_row["token"] = "average"
-    average_row["valid"] = pdm_score_df["valid"].all()
-    pdm_score_df.loc[len(pdm_score_df)] = average_row
 
     save_path = Path(cfg.output_dir)
     timestamp = datetime.now().strftime("%Y.%m.%d.%H.%M.%S")
-    pdm_score_df.to_csv(save_path / f"{timestamp}.csv")
+    output_csv = Path(cfg.output_csv) if cfg.output_csv else save_path / f"{timestamp}.csv"
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    pdm_score_df.to_csv(output_csv, index=False)
 
     logger.info(
         f"""
         Finished running evaluation.
             Number of successful scenarios: {num_sucessful_scenarios}.
             Number of failed scenarios: {num_failed_scenarios}.
-            Final average score of valid results: {pdm_score_df['score'].mean()}.
-            Results are stored in: {save_path / f"{timestamp}.csv"}.
+            Final average score of valid results: {pdm_score_df['PDMS'].mean()}.
+            Results are stored in: {output_csv}.
         """
     )
 

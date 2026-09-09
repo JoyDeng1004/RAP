@@ -1,5 +1,6 @@
 import cv2
 cv2.setNumThreads(1)
+import navsim  # Apply compatibility shims before importing pytorch_lightning.
 from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
 import logging
@@ -25,6 +26,31 @@ CONFIG_PATH = "config/training"
 CONFIG_NAME = "default_training"
 
 
+class TargetOnlyAgent:
+    """Lightweight target provider that never constructs RAPModel or DINO."""
+
+    def __init__(self, config: Any):
+        from navsim.agents.rap_dino.rap_features import RAPTargetBuilder
+
+        self._target_builders = [RAPTargetBuilder(config=config)]
+
+    def get_feature_builders(self) -> List[Any]:
+        return []
+
+    def get_target_builders(self) -> List[Any]:
+        return self._target_builders
+
+    def get_sensor_config(self) -> SensorConfig:
+        return SensorConfig.build_no_sensors()
+
+
+def build_cache_agent(cfg: DictConfig) -> Any:
+    """Build either the configured agent or a model-free target provider."""
+    if cfg.target_only:
+        return TargetOnlyAgent(instantiate(cfg.agent.config))
+    return instantiate(cfg.agent)
+
+
 def cache_features(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[Optional[Any]]:
     """
     Helper function to cache features and targets of learnable agent.
@@ -37,7 +63,7 @@ def cache_features(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[
     tokens = [t for a in args for t in a["tokens"]]
     cfg: DictConfig = args[0]["cfg"]
 
-    agent: AbstractAgent = instantiate(cfg.agent)
+    agent: AbstractAgent = build_cache_agent(cfg)
 
     scene_filter: SceneFilter = instantiate(cfg.train_test_split.scene_filter)
     scene_filter.log_names = log_names
@@ -46,7 +72,7 @@ def cache_features(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[
         sensor_blobs_path=Path(cfg.sensor_blobs_path),
         data_path=Path(cfg.navsim_log_path),
         scene_filter=scene_filter,
-        sensor_config=agent.get_sensor_config(),
+        sensor_config=(SensorConfig.build_no_sensors() if cfg.target_only else agent.get_sensor_config()),
         enable_filter=False
     )
     logger.info(f"Extracted {len(scene_loader.tokens)} scenarios for thread_id={thread_id}, node_id={node_id}.")
@@ -102,7 +128,10 @@ def main(cfg: DictConfig) -> None:
         for log_file, tokens_list in scene_loader.get_tokens_list_per_log().items()
     ]
     print('data_points', len(data_points))
-    cache_features(data_points)
+    if cfg.target_only:
+        _ = worker_map(worker, cache_features, data_points)
+    else:
+        cache_features(data_points)
     len_points = len(scene_loader)
     del scene_loader
     #_ = worker_map(worker, cache_features, data_points)

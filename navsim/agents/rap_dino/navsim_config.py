@@ -22,6 +22,8 @@ class RAPConfig:
     eval_input_modality: str = "real"
     dino_model_name: str = "facebook/dinov3-vith16plus-pretrain-lvd1689m"
     dino_init_from_pretrained: bool = True
+    allow_missing_rendered_placeholder: bool = False
+    rendered_placeholder_log_path: str = ""
     b2d: bool = False
     cache_data: bool = False
     train_metric_cache_path: str = "./train_metric_cache"
