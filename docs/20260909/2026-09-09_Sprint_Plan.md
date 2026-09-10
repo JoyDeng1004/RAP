@@ -1,4 +1,4 @@
-# 2026-09-09 → 09-11｜48h 实验冲刺计划（Sprint Plan）· **v2.4**
+# 2026-09-09 → 09-11｜48h 实验冲刺计划（Sprint Plan）· **v2.5**
 
 > v2 以 **`docs/20260909/` 下的现有文件 + RAP 开源代码库（本仓库）** 为唯一基准重写，补齐 TSUBAME4.0 执行架构、真实路径规范、数据集策略与 Git 并行方案。
 > 所有涉及云端的断言均已降级为 **待审计项**，并附可执行的审计命令。
@@ -6,6 +6,7 @@
 > v2.2 记录 Human 对 `SD-0` 选项 B 及 `SD-7/SD-8` 的裁决，并冻结当前 development pilot 的预算、实验臂、seed、指标、access boundary、checkpoint 规则、Simulator/RL 投入上限与脚本入库边界。
 > v2.3 收敛 **T0.1（`EF-4` 逐路径并入，U1–U4 已 commit）** 与 **O1 渲染管线侦察** 的结果：修订 `EF-4` 定性、新增 `EF-5/EF-6`、新增 `SD-9`～`SD-13`、把 `SD-1` 细化为训练/可视化双路径判据、更正 `C_d` 为 **4 相机**、记入 `A1` 污染门的本地预跑结果。
 > v2.4 收敛 **T0.2（`SD-8` 脚本白名单）** 与 **T0.3（工作树清理）**：登记 `scripts/agent_tools/` 的**事后补批**、新增 `SD-14`（并发写入者的分支与 push 隔离）与 `EF-7`（TSUBAME 侧 worktree/分支状态未验证）、归档一份**非 A1–A5** 的 dataset path-layout 审计并标注其提案仍待批准。
+> v2.5 收敛 **A1–A5 审计已交付但 `CP-2b` FAIL** 的事实：闭合 `EF-6`（`ogr2ogr` 不可用）与 `EF-7`（worktree 已删、降级为三条非代码脏项）、按实测更正 §8.1 布局表并依 §8.4 免除条款**放弃 worktree**、新增 §8.5 替代护栏 `W-1`～`W-4`、修正 §8.2 Step 3 的两处 bug、更新 §3.5 过时表述、新增 `SD-15`（剔除粒度）与 `SD-16`（`4cam_v1` 根可用性），并记入追加审计 `A1_clean_subset` 的结论：**主 raster 根的 `C_d` 齐全 token 为 0**。
 
 ---
 
@@ -166,22 +167,24 @@ scripts/*
 
 **附**：`tools/render_navsim_scene.py` 的上游 fixture 生产者 `extract_one_scene.py`（153 行，仓库根，硬编码本地路径 `/Users/joy/pythonProject/RAP/navsim_one_scene`）按 Human 裁决**不带入**。后果：该工具仅归档不可运行，且 §3.6 `A5` 第 7 项要求的「H0 fixture / sample manifest」**尚无指定来源**，须在 `CP-2b` 前补一个决议。
 
-### `[EF-6]｜外部二进制依赖 GDAL `ogr2ogr` 在 TSUBAME 上未查证` 🟠
+### `[EF-6]｜GDAL `ogr2ogr` 在 TSUBAME 不可用` ❌ **已闭合（2026-09-10）**
 
 `tools/render_navsim_scene.py:84,104` 通过 `subprocess.run([... "ogr2ogr" ...], check=True)` 读取 nuPlan `map.gpkg`，缺失即 `CalledProcessError`。
 
 - 本地 Mac：✅ 可用（GDAL 3.11.3 "Eganville"）
-- **TSUBAME：未知**
+- **TSUBAME：❌ 实测 `which ogr2ogr` → not found**（PATH 已含 conda `rap` env、CUDA 12.1、UGE、code-server 等全部路径）
 
-**查证命令（并入 `CP-1`）**：
+**后果**：`--map-gpkg` 虽为可选参数（default `None`），但不带地图则 raster **没有 HD-map 几何、也没有交通灯**，H0 的 raster 叠图检查将失去大部分可检内容。
 
-```bash
-which ogr2ogr && ogr2ogr --version
-```
+**与 §3.6 第 8 项（H0 fixture 无来源）叠加 → `SH-0` 双重阻断，`CP-2c` 会前不可达。**
 
-**缓解**：`--map-gpkg` 为可选参数（default `None`）；但不带地图则 raster **没有 HD-map 几何、也没有交通灯**，H0 的 raster 叠图检查将失去大部分可检内容。
+**解法（D+1，不在本冲刺执行）**：本地 Mac 的 GDAL 3.11.3 已验证可用，而 nuPlan `map.gpkg` 是静态的、只有少数 location。**在 Mac 上一次性预转 GeoJSON，产物传 TSUBAME，renderer 改读 JSON** —— 把运行时依赖变成构建时产物，零环境风险，且产物可 sha256 入 `A5`。备选：`fiona` / `geopandas` / 直接 `sqlite3`（GPKG 本身即 SQLite）。
 
-### `[EF-7]｜TSUBAME 侧 worktree 与分支状态未验证` 🔴 阻断作业提交
+> ⛔ **明令禁止**：会前 `conda install gdal`。它会动 `rap` env 的 numpy/proj 绑定，违反 §6.5「新数据格式/依赖接入 2 小时内做不出 smoke test 就砍」。
+
+### `[EF-7]｜TSUBAME worktree 已清空；仅剩三条非代码脏项` 🟡 **已降级（2026-09-10）**
+
+<details><summary>原始 🔴 记录（保留供追溯）</summary>
 
 2026-09-10 在本地 Mac 仓库中发现一条**错配**的 worktree 注册：
 
@@ -199,18 +202,28 @@ which ogr2ogr && ogr2ogr --version
 
 **已执行（仅本地 Mac 仓库）**：`git worktree prune` 清除陈旧注册；`git branch -d exp/sprint-0909-p1` 删除冗余分支。删除前已验证 `6bca83e5` 是 `HEAD` 的祖先、该分支**无独有 commit**、远端**无对应分支**，因此未丢失任何 commit。
 
-**未执行、必须由 Human 在 TSUBAME 上完成**：本机无法触及 `/gs/bs/tga-RLA/qdeng/`。登录后须先查证再修复：
+</details>
 
-```bash
-cd /gs/bs/tga-RLA/qdeng/RAP
-git worktree list
-git -C /gs/bs/tga-RLA/qdeng/RAP-p1 rev-parse --abbrev-ref HEAD 2>/dev/null
-git -C /gs/bs/tga-RLA/qdeng/RAP-p1 log --oneline -1 2>/dev/null
-```
+### 🟡 2026-09-10 更新：worktree 已删除，`EF-7` 降级
 
-若 `RAP-p1` 不在 `exp/sprint-0909-base` 上，或其 `HEAD` 早于 `939fc06d`（U4），则**必须先修复再提交任何作业**：`git fetch origin` → 切到 `exp/sprint-0909-base` → 确认 `git log --oneline -1` 至少包含 T0.1 四项 → 再按 §8.2 Step 3 重建符号链接、Step 4 自证 `git_sha`。
+Human 已删除 `/gs/bs/tga-RLA/qdeng/RAP-p1`。**原风险（错分支 + 缺 T0.1 资产 → 静默跑错代码）随之消灭**：`git worktree list` 实测只剩主仓库，无 prunable 条目。
 
-> ⚠️ 在 `EF-7` 查证通过前，**不得提交 F0/F1 作业** —— 否则无法证明跑的是哪份代码。
+同日核实三处一致：`origin/exp/sprint-0909-base` = `$RAP_ROOT` HEAD = 本地 Mac HEAD = **`f5ae782a`**，零未推送 commit → **T0.1 四项资产已在 TSUBAME 上**，无需 fetch 或切分支。
+
+`$RAP_ROOT` 的 `git status --porcelain` 剩 14 条，**全部非实验代码**：
+
+| 脏项 | 成因 | 处置 |
+|---|---|---|
+| `D docs/slides/assets/*.png` × 12 | `f9880fac` 的 PPT 资产在云端工作树被删（文件在 `f5ae782a` 内，可无损还原） | `git restore docs/slides/assets/` |
+| `?? ckpts/` | `.gitignore` 的 `*.ckpt` 只匹配文件；`ckpts/` 内的 `dinov3_*.pth` 不匹配，导致整目录冒出 | `T0.4` 补 `ckpts/` 规则 |
+| `?? scripts/agent_tools/__pycache__/` | `SD-8` 白名单 `!scripts/agent_tools/**` 把 `__pycache__` 一并重新纳入，覆盖了靠前的通用规则 | `T0.4` 补 `scripts/**/__pycache__/` |
+
+- ✅ **`B12` 关闭**：`A4` 时代观察到的 staged 未 commit renderer 已随 `f5ae782a` 落地，不再出现。
+- 🟡 `B13`（`tools/canonical_bev/` 两端不一致）仍在，但云端连 `??` 都未出现 → 该目录确实不在云端，与 `A4` 一致，**对 F0/F1 无影响**。
+
+**剩余待办**：① 清掉上述三条脏项，否则 §8.2 Step 4 的 dirty 检查拒跑；② 提交作业前不再需要重建 worktree —— 依 §8.4 免除条款，本冲刺**不使用 worktree**，见 §8.1 与 §8.5。
+
+> ⚠️ 在上述①完成前，**不得提交 F0/F1 作业** —— 否则 Step 4 会拒跑，或绕过拒跑而无法证明跑的是哪份代码。
 
 ---
 
@@ -404,6 +417,20 @@ nuScenes 自建轨迹须对齐到同样的 **4 历史帧 + 10 未来帧 + interv
 
 **阻断范围**：`SD-3` 的绝对数、`A1`/`A5` 的「合法训练集总数」、DEV manifest 的抽样基数。**裁决前不得生成 manifest。**
 
+**新增实测决策材料（2026-09-10，`a1_clean_subset.py`）**：
+
+| 池 | 规模 | ∩`navtest` | ∩`warmup_test_e2e` | ∩`navmini` | 干净可用（token 级 / `4cam_v1`） |
+|---|---:|---:|---:|---:|---:|
+| `B1` navtrain | 1192 logs | **0 / 0** | 52 logs / 446 tok | 52 logs / 388 tok | 1,878 tokens |
+| `B2` navall | 14539 logs | **0 / 0** | 52 logs / 446 tok | 52 logs / 388 tok | 1,878 tokens |
+| `B3` split-config | 13180 logs | **0 logs** | 43 logs | 43 logs | 2,387 tokens（保证更弱） |
+
+三点由此改变：
+
+1. **`B2` 原本被要求的「证明与 `navtest` token 级无重叠」已实测discharge**（0 logs / 0 tokens）。v2.3 把 `B2` 写成风险更高，**不成立**；`B1` ⊂ `B2`，且两者评测侧暴露**完全相同**。选 `B1` 的理由只剩「规模小、跑得快」，不再有安全性理由。
+2. **官方 `navtrain` 自身就含评测侧 token**（warmup 446 / navmini 388），所以「用 navtrain」不等于自动干净，仍须按 `SD-15` 剔除。
+3. **无论怎么裁，`SD-3` 的 10% 都兑现不了**：`B1` 需 ≈119 logs，干净可用仅 52 logs。见 §3.5「追加审计」第 2 条。
+
 ### `SD-13｜`paired_54log` 在本冲刺中的角色` ✅ Human 已裁决：不使用
 
 `paired_54log.yaml` 是**手工固定的 54 个 log**，与 `SD-2` 冻结的「随机 10% + `manifest_seed=20260909` + 生成一次后冻结」协议冲突，也与池畑 9/2 §49–50 的「random sampling、不要人工精挑，否则 robustness 存疑」相冲突。
@@ -435,6 +462,34 @@ nuScenes 自建轨迹须对齐到同样的 **4 历史帧 + 10 未来帧 + interv
 | R-3 | 任何对 `exp/sprint-0909-base` 的写入必须先通过 §9.0 `CP-CODE` 并获得 Human `PASS` |
 
 > 执行状态：`exp/sprint-0909-tools` 分支已建。裁决时机器上**无其他 Claude 会话在运行**，无法直接通知写入者，因此本条以**文档规则 + 分支落点**形式生效，需由 Human 向该 writer 传达。
+
+### `SD-15｜评测侧剔除的粒度：token 级还是 log 级` 🔶 **未裁决** 🔴 阻断 F0
+
+§3.1 的硬门只写了「与 `navtest` / `navhard_two_stage` 的交集必须为 0」，**未指定粒度**。`A1_clean_subset` 证明两者给出的答案截然不同：
+
+| 粒度 | 含义 | `B1_navtrain` 下的可用 token（`4cam_v1` 根） |
+|---|---|---:|
+| **token 级** | 保留 log，只剔除命中评测侧的 token | 1,878 |
+| **log 级** | 任何 log 只要有一个 token 命中评测侧，整条 log 剔除 | **0** |
+
+log 级归零的原因：`warmup_test_e2e` 命中 `dataset_norm` 64 个 log 中的 **62 个**。
+
+**待裁决的科学问题**：同一 driving log 的 token 分处训练与评测两侧，是否构成泄漏？同一路段、同一天气、同一车辆、相邻时刻的帧高度相关，token 级分离可能不足以保证独立性。
+
+**阻断范围**：F0 是否存在。若裁 log 级，既有 raster 资产**可用量为 0**，F0 只能重渲后再谈。
+
+### `SD-16｜`rendered_sensor_blobs_4cam_v1` 能否作为 F0/F1 输入` 🔶 **未裁决** 🔴 阻断 F0
+
+`A1_clean_subset` 显示**主根 `rendered_sensor_blobs` 的 `C_d` 齐全 token 恒为 0**（`CAM_B0` 命中率 0%，该根按 3 相机渲制）。唯一有 `CAM_B0` 的是独立根 `rendered_sensor_blobs_4cam_v1`（B0 共 2,962 张，覆盖 54 个 log）。
+
+但 `A1_rap_datasets.md` 已明确：该根是**另一套独立根**，其 provenance（生成 commit / job / 原始输入）为 `UNKNOWN`，**不能在没有 manifest / pair audit 的情况下自动补齐主根**。
+
+**待裁决**：
+1. 是否允许把 `4cam_v1` 作为 F0/F1 的 raster 来源？
+2. 若允许，必须先做哪些核验？（建议至少：与主根同名文件的像素级一致性抽样、渲染配置 `Cd_hash` 反推、与 metadata 的 pair 完整性）
+3. 若不允许 → **F0 必须重渲 `C_d` 四相机 raster**，工期须重新估。
+
+> `SD-15` 与 `SD-16` **必须一并裁决**：即使 `SD-15` 裁 token 级，`SD-16` 不通过时可用量仍为 0。
 
 ---
 
@@ -629,6 +684,7 @@ grep -nE "calibrated_sensor|sensor\.json|CAM_|samples/|\.jpg|intrinsic|extrinsic
 ├── README.md                  # 概要 + 每项 PASS/FAIL/BLOCKED + 阻断项清单
 ├── A1_rap_datasets.md
 ├── A1_split_membership.md     # ⭐ 与 navtrain/navtest 交集，含污染判定
+├── A1_clean_subset.md         # ⭐ 追加：污染剔除后的干净可用池与 C_d 完整度
 ├── A2_nuscenes.md
 ├── A3_ckpts.md                # 每个 ckpt 一节 + ALLOWED_AS_INIT
 ├── A4_source_pixel_boundary.md
@@ -636,7 +692,43 @@ grep -nE "calibrated_sensor|sensor\.json|CAM_|samples/|\.jpg|intrinsic|extrinsic
 └── raw/                       # 原始 jsonl / 命令输出
 ```
 
-> 🔴 **截至 2026-09-10，上述目录仍不存在 —— A1–A5 尚未到达，`CP-2b` 未满足，不得开始 Smoke Test 或任何训练。**
+> ✅ **2026-09-09 已交付。** 七份报告（`README.md` + `A1`×2 + `A2` + `A3` + `A4` + `A5`）与 `raw/` 八份 jsonl 已全部 commit 入库。
+>
+> 🔴 **但 `CP-2b` 判定为 FAIL，训练仍被阻断：**
+>
+> | 审计 | 判定 |
+> |---|---|
+> | `EF-1` | PASS（qsub / UGE 2023.1.1） |
+> | `A1` | **FAIL / CONTAMINATED**（∩`navtest` = 10 logs / 1,365 tokens；主 raster 缺失率 62.49%；`navhard_two_stage` 定义缺失） |
+> | `A2` | PASS_WITH_LIMITATION |
+> | `A3` | PASS（3 个 ckpt 全部 `ALLOWED_AS_INIT: no`） |
+> | `A4` | **BLOCKED**（产物不存在；且未按 §3.4 双计数器格式交付 —— 见下） |
+> | `A5` | **BLOCKED**（26 字段无一 PASS，无 `config.frozen.yaml`） |
+>
+> 🔴 **`A4` 与 `SD-1` 存在未调和的矛盾**：`A4` 结论「代码属于 P2」沿用的是 `R1/R2/R3` 之前的单一判定，而 `SD-1` 已冻结该工具 `train_path_source_reads` = 0、判为可视化路径、可入 P1 分支。§3.4 要求的是**两个计数器 + 可达性 grep + `R3` 单向阀核对**。`CP-2b` 前须补一份 `A4` addendum，明确：代码判定以 `SD-1` 为准，`A4` 的 BLOCKED **仅针对已有产物的归属**，而该产物不存在。
+
+**追加审计｜`A1_clean_subset`（2026-09-10）**
+
+脚本 `scripts/audit/a1_clean_subset.py`（只读），产出 `A1_clean_subset.md` + `raw/A1_clean_subset.jsonl`。它量化「污染剔除后还剩多少可用」，**不改变 `A1` 的 CONTAMINATED 判定，也不解除 `CP-2b`**。
+
+干净池按**加法**定义（`clean = dataset tokens ∩ 已批准训练池 tokens − 评测侧 tokens`），不用减法 —— 因为 `A1_split_membership` 记录了 44,389 个不在任何官方 split token 列表内的 token，并已警告不得自动视为合法训练 token。
+
+**核心结论（`C_d` = B0/F0/L0/R0 四相机齐全的 token 数）：**
+
+| 池（token 级剔除） | ∩ logs | 剩余 tokens | 主根 `rendered_sensor_blobs` | 独立根 `rendered_sensor_blobs_4cam_v1` |
+|---|---:|---:|---:|---:|
+| `B1_navtrain` | 52 | 5,658 | **0** | 1,878 |
+| `B2_navall` | 53 | 5,664 | **0** | 1,878 |
+| `B3_split_config`（token 由 log 反推，保证更弱） | 44 | 35,520 | **0** | 2,387 |
+| 任一池，**log 级**剔除 | ≤2 | ≤800 | **0** | **0** |
+
+三项由此确立：
+
+1. 🔴 **主 raster 根对 F0/F1 结构性不可用。** 每路命中数为 `CAM_B0 0 / CAM_F0 5658 / CAM_L0 5658 / CAM_R0 5658` —— 它是按 **3 相机**渲的。`A1` 的「缺失率 62.49%」掩盖了真正的问题：缺的正好是 `C_d` 必需的 `CAM_B0`，命中率 **0%**。
+2. 🔴 **`SD-3` 的 10% budget 无法从既有 raster 兑现。** `B1` 下 10% × 1192 logs ≈ **119 logs**，而干净可用仅 **52 logs**。无论 `SD-12` 怎么裁都不够。要跑 F0 只能二选一：**重渲 `C_d` 四相机 raster**，或**由 Human 新开决议下调 budget**（按 §2 需新 `run_id` + 重做 `A5`）。
+3. 🔴 **剔除粒度从学术问题变成决定性问题。** log 级剔除下所有池的可用 token 归零（因 `warmup_test_e2e` 命中 64 个 log 中的 62 个）。F0 能否存在，取决于 Human 是否接受 token 级分离 —— 见 `SD-15`。
+
+> ⚠️ 依 `A1_rap_datasets.md`，`rendered_sensor_blobs_4cam_v1` 是**独立根**，未经 manifest / pair 审计不得用于补齐主根。因此上表 1,878 / 2,387 **尚不可直接使用** —— 见 `SD-16`。
 
 **另有一份已归档但性质不同的审计**（commit `113413e9`）：
 
@@ -964,16 +1056,28 @@ export SPRINT_AUDIT=$RAP_ROOT/docs/audits/2026-09-09_asset_audit
 - MacBook 只编辑不训练 → 没有"两份代码同时被占用"的问题 → **本地普通分支切换即可，不需要 worktree**。
 - TSUBAME 上一个作业会 `cd $RAP_ROOT && python ...` 跑几小时。**如果这期间你在同一目录 `git checkout` 或改文件，正在跑的作业会读到被换掉的代码**——而且不报错，只静默污染实验。这才是 worktree 要解决的真问题。
 
-**最小正确方案**：
+**最小正确方案（v2.5 修订：本冲刺不开 worktree）**：
+
+2026-09-10 实测发现 TSUBAME 的 `$RAP_ROOT` **本身就检出在 `exp/sprint-0909-base`**（HEAD = `f5ae782a`），而非 v2.4 布局表所写的 `[main]`。因此 `git worktree add ../RAP-p1 exp/sprint-0909-base` 必然失败于 §8.3 坑 #1（同一分支不能被两个 worktree 同时检出）。
 
 ```
-TSUBAME:
-/gs/bs/tga-RLA/qdeng/RAP            [main]                  ← 只读参考，不在这里提交作业
-/gs/bs/tga-RLA/qdeng/RAP-p1         [exp/sprint-0909-base]  ← F0/F1 全部从这里提交
-/gs/bs/tga-RLA/qdeng/RAP-p2         [exp/sprint-0909-x]     ← X 系列开发（SD-4/CP-3 通过后才动 allowlist）
+TSUBAME（v2.5 实际布局）:
+/gs/bs/tga-RLA/qdeng/RAP    [exp/sprint-0909-base] @ f5ae782a  ← F0/F1 直接从这里提交
+/gs/bs/tga-RLA/qdeng/RAP-p2 [exp/sprint-0909-x]                ← X 系列，SD-4/CP-3 通过后才建
 ```
 
-只需 **2 个 worktree**。F0/F1 共用 `RAP-p1` 是**正确的**（它们必须同 commit）；拆开反而增加"代码不一致"的风险。
+**本冲刺不使用 worktree**，依据 §8.4 免除条款「只跑一个实验族 → 一个工作目录够了」：F0/F1 按本节规定本来就必须共用同一分支同一 commit，而 X 系列被 `SD-4/CP-3` 挡住，当前**不存在第二个代码不同的实验族**。
+
+**决定性证据（2026-09-10 实测）**：
+
+```
+$ python -c "import navsim; print(navsim.__file__)"
+/gs/bs/tga-RLA/qdeng/RAP/navsim/__init__.py
+```
+
+editable 安装指向主仓库。因此若从 `RAP-p1` 提交作业，import 到的**仍是 `$RAP_ROOT` 的代码** —— 即 §8.3 坑 #3，静默、不报错、跑完才发现。**在当前环境下 worktree 增加而非降低风险。**
+
+**代价**：worktree 原本挡的「作业运行中代码被换掉」风险，改由 §8.5 的 `W-1`～`W-4` 纪律承担。
 
 ### 8.2 操作步骤
 
@@ -1041,33 +1145,37 @@ T0.3 按 Human 逐类裁决处置了全部未跟踪项，**未删除任何文件
 
 > worktree **不会携带未提交改动**。当前工作树若有未提交内容，`git worktree add` 出来的是干净的旧代码——这是最常见、最难发现的坑。
 
-**Step 2｜在 TSUBAME 上建 worktree**
+**Step 2–3｜建 worktree** — ⏸ **本冲刺不执行**（见 §8.1）。仅在 X 系列开工（`SD-4/CP-3` 通过）时启用，且只建 `RAP-p2`。
+
+启用时**必须修正 v2.4 原文的两处 bug**：
+
+| # | v2.4 错误 | 正确写法 |
+|---|---|---|
+| 1 | `printf ... >> .git/info/exclude` | linked worktree 的 `.git` 是**文件**不是目录，该重定向直接报 `Not a directory`。须写 `>> "$(git rev-parse --git-common-dir)/info/exclude"` |
+| 2 | exclude 内容沿用 `.gitignore` 的写法 | `.gitignore` 的 `dataset_norm/` `outputs/` `env/` 全部**带尾斜杠**，只匹配目录**不匹配符号链接**；`ckpts` 在 `T0.4` 前更是完全未覆盖。exclude 必须写**不带斜杠的裸名**，否则六个符号链接全部 untracked，直接触发 Step 4 的 dirty 拒跑 |
+
+<details><summary>修正后的 Step 2–3（X 系列启用时使用）</summary>
 
 ```bash
 ssh tsubame
 cd /gs/bs/tga-RLA/qdeng/RAP
 git fetch origin
-git switch main && git pull --ff-only
-
-git worktree add ../RAP-p1 exp/sprint-0909-base          # 跟踪已存在的远程分支
-git worktree add ../RAP-p2 -b exp/sprint-0909-x main     # 新建 X 系列分支
+git worktree add ../RAP-p2 -b exp/sprint-0909-x origin/exp/sprint-0909-base
 git worktree list
-```
 
-**Step 3｜每个 worktree 一次性配置**
-
-```bash
-for W in ../RAP-p1 ../RAP-p2; do
-  cd "$W"
-  ln -sfn /gs/bs/tga-RLA/qdeng/RAP/dataset_norm      dataset_norm
-  ln -sfn /gs/bs/tga-RLA/qdeng/RAP/dataset_aug       dataset_aug
-  ln -sfn /gs/bs/tga-RLA/qdeng/RAP/dataset_perturbed dataset_perturbed
-  ln -sfn /gs/bs/tga-RLA/qdeng/RAP/ckpts             ckpts
-  ln -sfn /gs/bs/tga-RLA/qdeng/RAP/env               env
-  ln -sfn /gs/bs/tga-RLA/qdeng/RAP/outputs           outputs
-  printf 'dataset_*\nckpts\nenv\noutputs\n' >> .git/info/exclude
+cd ../RAP-p2
+for T in dataset_norm dataset_aug dataset_perturbed ckpts env outputs; do
+  ln -sfn /gs/bs/tga-RLA/qdeng/RAP/$T $T
 done
+printf 'dataset_norm\ndataset_aug\ndataset_perturbed\nckpts\nenv\noutputs\n' \
+  >> "$(git rev-parse --git-common-dir)/info/exclude"
+git status --porcelain      # 必须为空
 ```
+
+若需固定到某一 commit 而非分支，用 `git worktree add --detach ../RAP-p2 <sha>`。
+**启用后必须先验 `python -c "import navsim; print(navsim.__file__)"` 指向该 worktree**，否则命中 §8.3 坑 #3。
+
+</details>
 
 > **数据与产物永远在仓库外，worktree 内只放符号链接。** 否则每个 worktree 都会试图重建缓存，磁盘和时间都撑不住。
 
@@ -1121,6 +1229,21 @@ git worktree prune                    # 手工 rm 掉目录后清理残留记录
 - 只改文档 / 只改 PPT → 直接在一个分支上做，别开 worktree
 - 只跑一个实验族 → 一个工作目录够了，worktree 只增加认知负担
 - 磁盘紧张 → worktree 共享 `.git`（省了历史），但**每个都会完整展开一份工作树文件**；本仓库工作树不大，可接受
+
+**本冲刺正是第二种情况**（只有 F0/F1 一个实验族），因此按本节免除条款不开 worktree，改用 §8.5。
+
+### 8.5 不使用 worktree 时的替代护栏 🆕
+
+worktree 原本挡的是「作业跑到一半，代码在同一目录被换掉」（§8.3 坑 #2 / #5）。不用它，就必须由纪律承担：
+
+| # | 规则 |
+|---|---|
+| **W-1** | TSUBAME 上**永不**执行 `git checkout` / `git switch` / `git pull`。编辑与提交只在 Mac。需更新代码时：确认无作业在跑 → `git fetch` → `git merge --ff-only` → 记录新 `git_sha` |
+| **W-2** | §8.2 Step 4 的 dirty 拒跑 + `git_sha` 自证保持不变，且**现在是唯一护栏**，权重上升。其中 `export RAP_ROOT="$WORKTREE"` 一行可删 —— 不开 worktree 时 `$RAP_ROOT` 本就正确 |
+| **W-3** | 每个 run 归档 `job.script` 原文 + `hashes.json`（不变） |
+| **W-4** | `SD-14` R2 必须**真的传达给并发写入者**：不得 push 到 `exp/sprint-0909-base`。这是 `W-1` 唯一挡不住的路径 —— 远端被改，下次 fetch 即中招 |
+
+> `W-2` 的 dirty 拒跑要能生效，前提是工作树可清空 —— 见 `EF-7` 的三条脏项与 `T0.4`。
 
 ---
 
@@ -1203,10 +1326,10 @@ A1–A5、H0 或技术检查未通过时，写 `BLOCKED` / `INVALID` / `Technica
 
 | # | 页 | 内容 |
 |---|---|---|
-| 1 | 我希望老师判断什么 | 直接列 `SD-4` / `SD-5` / **`SD-12`（合法训练集选哪个池）** / 3D baseline 排期 / RL 投入比例；已冻结 P1 access boundary 作为前提 |
+| 1 | 我希望老师判断什么 | 直接列 `SD-4` / `SD-5` / **`SD-12`（合法训练集选哪个池）** / **`SD-15`（评测侧剔除粒度）** / **`SD-16`（`4cam_v1` 根可用性）** / 3D baseline 排期 / RL 投入比例；已冻结 P1 access boundary 作为前提 |
 | 2 | 问题定义与协议 | target 是谁、何时知道 calibration、zero/few-shot 数什么、10% scene/log budget + A1/A5 绝对计数 |
 | 3 | 三维数据流表 | **场景来源 × 渲染 rig × 接受的 loss**（修正 Old/New Synthetic 混淆） |
-| 4 | 资产、训练准备审计与 H0 通过证明 | A1 污染检查、A2 完整度、A3 ckpt 合规、A4 边界现状、A5 冻结配置；几何误差与 corruption 检出 |
+| 4 | 资产、训练准备审计与阻断证明 | A1 污染检查、A2 完整度、A3 ckpt 合规、A4 边界现状、A5 冻结配置。**核心一张表 = `A1_clean_subset` 的 `C_d` 完整度**：主 raster 根齐全 token 恒为 0（按 3 相机渲制），`SD-3` 的 10% 需 ≈119 logs 而干净可用仅 52 logs。H0 因 `EF-6`（`ogr2ogr` 缺失）+ §3.6 第 8 项（fixture 无来源）双重阻断，会前不可达 |
 | 5 | 最小对照 pilot 结果 | F0/F1；全部标 preliminary / single DEV subset / seeds=20260909；含公平性核对表 |
 | 6 | 我能下 / 不能下的结论 | 科学结论统一 `Inconclusive`；并列原始差值、方向、限制与下一步 confirmatory 缺口。**必含 `SD-9`：F1 的 external 流恒无交通灯 —— 作为「external 数据是否污染 target」的首个具体实例，并给出分层评估的证伪方案** |
 | 7 | **P2 X 系列设计 + P1 隔离** | 展示已冻结 access boundary、P2 不得流入 P1，以及 `SD-4` 待裁决项 |
