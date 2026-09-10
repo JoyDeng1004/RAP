@@ -1,4 +1,4 @@
-# 2026-09-09 → 09-11｜48h 实验冲刺计划（Sprint Plan）· **v2.5**
+# 2026-09-09 → 09-11｜48h 实验冲刺计划（Sprint Plan）· **v2.6**
 
 > v2 以 **`docs/20260909/` 下的现有文件 + RAP 开源代码库（本仓库）** 为唯一基准重写，补齐 TSUBAME4.0 执行架构、真实路径规范、数据集策略与 Git 并行方案。
 > 所有涉及云端的断言均已降级为 **待审计项**，并附可执行的审计命令。
@@ -7,6 +7,9 @@
 > v2.3 收敛 **T0.1（`EF-4` 逐路径并入，U1–U4 已 commit）** 与 **O1 渲染管线侦察** 的结果：修订 `EF-4` 定性、新增 `EF-5/EF-6`、新增 `SD-9`～`SD-13`、把 `SD-1` 细化为训练/可视化双路径判据、更正 `C_d` 为 **4 相机**、记入 `A1` 污染门的本地预跑结果。
 > v2.4 收敛 **T0.2（`SD-8` 脚本白名单）** 与 **T0.3（工作树清理）**：登记 `scripts/agent_tools/` 的**事后补批**、新增 `SD-14`（并发写入者的分支与 push 隔离）与 `EF-7`（TSUBAME 侧 worktree/分支状态未验证）、归档一份**非 A1–A5** 的 dataset path-layout 审计并标注其提案仍待批准。
 > v2.5 收敛 **A1–A5 审计已交付但 `CP-2b` FAIL** 的事实：闭合 `EF-6`（`ogr2ogr` 不可用）与 `EF-7`（worktree 已删、降级为三条非代码脏项）、按实测更正 §8.1 布局表并依 §8.4 免除条款**放弃 worktree**、新增 §8.5 替代护栏 `W-1`～`W-4`、修正 §8.2 Step 3 的两处 bug、更新 §3.5 过时表述、新增 `SD-15`（剔除粒度）与 `SD-16`（`4cam_v1` 根可用性），并记入追加审计 `A1_clean_subset` 的结论：**主 raster 根的 `C_d` 齐全 token 为 0**。
+> v2.6 同步 `docs/audits/datasets/` 的**全套五份盘点审计**（`README` / `NAVSIM_inventory` / `nuScenes_inventory` / `download_gap_list` / 更新后的 `path_layout`，snapshot `20260910T092936+0900`，总状态 **FAIL**）：新增 **§3.7 数据集实测盘点**（含 v2.2 filter 交集矩阵与 nuPlan raw 根）；**关闭 `A1` 的 `navhard_two_stage` UNKNOWN**（交集 = 7 logs / 44 tokens，仍为污染）；按实测重写 §3.2 的 nuScenes 完整度判据、更正 §3.5 的 `A1`/`A2` 判定；§7.1 登记 `$OPENSCENE_DATA_ROOT` 实际布局；§4.1 补评测侧物理路径清单。
+> 🔴 **v2.6 作废 `SD-15` 的既有数字**：`warmup_test_e2e.yaml` 经证实为旧定义，v2.2 真值只命中 1 log / 2 tokens 而非 62 logs。
+> **新增三项此前未记录的缺陷**：`dataset_aug` 20 个 EOF/truncated pickle；`dataset_perturbed` 命中 navtrain 5,095 / navmini 320 tokens；`navtrain` 定向 history camera 缺 46 个文件（3 个 log）。
 
 ---
 
@@ -431,6 +434,10 @@ nuScenes 自建轨迹须对齐到同样的 **4 历史帧 + 10 未来帧 + interv
 2. **官方 `navtrain` 自身就含评测侧 token**（warmup 446 / navmini 388），所以「用 navtrain」不等于自动干净，仍须按 `SD-15` 剔除。
 3. **无论怎么裁，`SD-3` 的 10% 都兑现不了**：`B1` 需 ≈119 logs，干净可用仅 52 logs。见 §3.5「追加审计」第 2 条。
 
+**raw 侧可用性实测（2026-09-10，`download_gap_list.md`，见 §3.7）**：上述"不够"是**既有 RAP processed 产物**的性质，不是 raw 数据的性质。`$OPENSCENE_DATA_ROOT/sensor_blobs/trainval` 对 `navtrain` 的定向核对为 **current 826,304/826,304、history unique 1,219,936/1,219,982（仅缺 46 个文件，分布在 3 个 log / 8 个 camera channel）**；该审计对本条给出的定性是「**不是 raw 下载问题；属于 split 污染 + RAP processing 未完成**」。
+
+> ⚠️ 该定性**不构成**「重跑 RAP processing」的批准。其前置条件的核验状态见 §3.7.4：nuPlan raw 根**存在**（1.20 TB / 2,594,741 files），但**对 `navtrain` 的 log 级覆盖率仍 UNKNOWN**。裁决 `SD-12` 时须把它当作**存在但未验证覆盖率**的选项。
+
 ### `SD-13｜`paired_54log` 在本冲刺中的角色` ✅ Human 已裁决：不使用
 
 `paired_54log.yaml` 是**手工固定的 54 个 log**，与 `SD-2` 冻结的「随机 10% + `manifest_seed=20260909` + 生成一次后冻结」协议冲突，也与池畑 9/2 §49–50 的「random sampling、不要人工精挑，否则 robustness 存疑」相冲突。
@@ -473,6 +480,9 @@ nuScenes 自建轨迹须对齐到同样的 **4 历史帧 + 10 未来帧 + interv
 | **log 级** | 任何 log 只要有一个 token 命中评测侧，整条 log 剔除 | **0** |
 
 log 级归零的原因：`warmup_test_e2e` 命中 `dataset_norm` 64 个 log 中的 **62 个**。
+
+> 🔴 **v2.6 作废上表。** `NAVSIM_inventory.md`（§3.7.3）证明 RAP 内的 **`warmup_test_e2e.yaml` 是旧定义**，不得代替 v2.2 two-stage 真值；v2.2 的 `warmup_two_stage` 对 `dataset_norm` 只命中 **1 log / 2 tokens**，不是 62 logs。**`SD-15` 必须在 v2.2 定义下重算可用 token 后再裁决。**
+> 一并需在 `SD-15` 中明确：**`navmini`（62 logs / 396 tokens）是否计入评测侧** —— §4.1 的禁读清单未列入它，而 `A1_clean_subset` 把它当评测侧扣除。两种口径给出的答案不同。
 
 **待裁决的科学问题**：同一 driving log 的 token 分处训练与评测两侧，是否构成泄漏？同一路段、同一天气、同一车辆、相邻时刻的帧高度相关，token 级分离可能不足以保证独立性。
 
@@ -572,7 +582,18 @@ done
 `navtest` 另有**双重隔离**：与 `paired_54log` 零交集，且位于不同的 `data_split`（`test` vs `trainval`）。
 
 > 🔴 **本结果不替代 `A1`。** 本地跑的是 **log 级、配置文件之间**的交集；§3.1 要求的是 TSUBAME 上 `dataset_norm/aug/perturbed` **实际产物的 token 级**交集。它只把风险从"完全未知"降到"配置层面已排除"，`CP-2b` 仍以云端 `A1` 为准。
-> 另注：`navhard_two_stage.yaml` 在本分支缺失，而 §4.1 与 `CP-2b` 都把它列为必须排除的评测侧数据 —— `A1` 须在云端确认其存在与内容，否则该项判定无法完成。
+
+**`navhard_two_stage` 的 UNKNOWN 已于 2026-09-10 关闭**（`download_gap_list.md`，见 §3.7）。`A1_split_membership.md` 与 `A1_clean_subset.md` 都标 `MISSING_SPLIT_DEFINITION`，因为它们只在**本仓库的 `scene_filter/` 下**找 YAML；实际定义在**数据侧**：
+
+| 项 | 实测 |
+|---|---|
+| 位置 | `$OPENSCENE_DATA_ROOT/navhard_two_stage` |
+| v2.2 filter | 76 logs / 450 real tokens / 5,462 synthetic tokens |
+| 产物完整度 | 2,731 pickle；13,655 records；refs **109,240/109,240**；camera-only 1,423,089 files；sample decode 128/128 |
+| **∩ `dataset_norm`** | **7 logs / 44 tokens** |
+| v2.2 provenance | **UNKNOWN**（archive 已删除，官方未给本地内容 checksum；现有 metadata aggregate SHA-256 已记录） |
+
+**后果**：`README.md` 的阻断项 #2（"不能证明 navhard 交集为 0"）**转为已证明的污染**——交集不是 0，是 7 logs / 44 tokens。§3.1 硬门对 `navhard_two_stage` 的判定由「无法完成」变为 **FAIL**。`A1` 的 CONTAMINATED 判定因此**加强而非减弱**。
 
 ### 3.2 `A2`｜nuScenes 原始数据集
 
@@ -604,6 +625,10 @@ P=/gs/bs/tga-RLA/qdeng/data/nuscenes
 ```
 
 **完整度判据**（`v1.0-trainval`）：`sample` 表约 34k 条、6 个相机目录各约 34k 张、`sweeps/` 远大于 `samples/`。报告须写明**实测值 vs 官方声明值**的差异。
+
+**⚠️ 2026-09-10 更正：上述判据不足以判完整。** `A2_nuscenes.md` 依此判 `PASS_WITH_LIMITATION`，但 `nuScenes_inventory.md` 用**逐 `sample_data` 引用核对 + 官方 `assert_download.py`** 重测后判 **FAIL**。两者不矛盾——`A2` 查的是 `samples/` 目录计数，漏掉了 `sweeps/`。详见 §3.7。
+
+> 判据修订：`A2` 类审计**必须**做逐引用 `exists + size`，并跑官方 `assert_download.py`。「六路相机各 34k 张」与「devkit 能 init」都**不能**作为完整性证据 —— `NuScenes(...)` 初始化只建 metadata 索引，不检查 blob。
 
 ### 3.3 `A3`｜模型 Checkpoint
 
@@ -699,8 +724,8 @@ grep -nE "calibrated_sensor|sensor\.json|CAM_|samples/|\.jpg|intrinsic|extrinsic
 > | 审计 | 判定 |
 > |---|---|
 > | `EF-1` | PASS（qsub / UGE 2023.1.1） |
-> | `A1` | **FAIL / CONTAMINATED**（∩`navtest` = 10 logs / 1,365 tokens；主 raster 缺失率 62.49%；`navhard_two_stage` 定义缺失） |
-> | `A2` | PASS_WITH_LIMITATION |
+> | `A1` | **FAIL / CONTAMINATED**（∩`navtest` = 10 logs / 1,365 tokens；~~`navhard_two_stage` 定义缺失~~ → **v2.6 更正：∩`navhard_two_stage` v2.2 = 7 logs / 44 tokens**，见 §3.1；主 raster 缺失率 62.49%） |
+> | `A2` | ~~PASS_WITH_LIMITATION~~ → **v2.6 更正：`nuScenes_inventory.md` 以逐引用 + 官方 assert 重测判 FAIL**（trainval 缺 32,605、test 缺 338,382）。但**缺口全在 F1 读取契约之外**，见 §3.7.3 第 1 条 |
 > | `A3` | PASS（3 个 ckpt 全部 `ALLOWED_AS_INIT: no`） |
 > | `A4` | **BLOCKED**（产物不存在；且未按 §3.4 双计数器格式交付 —— 见下） |
 > | `A5` | **BLOCKED**（26 字段无一 PASS，无 `config.frozen.yaml`） |
@@ -730,19 +755,29 @@ grep -nE "calibrated_sensor|sensor\.json|CAM_|samples/|\.jpg|intrinsic|extrinsic
 
 > ⚠️ 依 `A1_rap_datasets.md`，`rendered_sensor_blobs_4cam_v1` 是**独立根**，未经 manifest / pair 审计不得用于补齐主根。因此上表 1,878 / 2,387 **尚不可直接使用** —— 见 `SD-16`。
 
-**另有一份已归档但性质不同的审计**（commit `113413e9`）：
+**另有一组性质不同的审计**（`docs/audits/datasets/`，snapshot `20260910T092936+0900`，Git SHA `b95916ff` / DIRTY，执行者 Codex）：
 
 ```
 docs/audits/datasets/
-├── path_layout.md      # 74 行，dataset path layout 方案 + 审计
-├── maintenance.md      # 89 行
-└── raw/                # filesystem / navsim_references / nuscenes_references
-                        #   （20260910T092936+0900）
+├── README.md                 # ⭐ 总入口：五数据集状态表 + P0–P3 摘要 + UGE job 账本 + Human 检查门
+├── NAVSIM_inventory.md       # ⭐ NAVSIM raw/filtered/processed 逐引用 + v2.2 交集 + history + archive MD5
+├── nuScenes_inventory.md     # ⭐ nuScenes 逐引用盘点 + devkit/assert + 三个完整 mini 候选
+├── download_gap_list.md      # ⭐ P0–P3 补全清单 + 官方来源 + 只记录不执行的命令
+├── path_layout.md            # canonical symlink 层方案 + 审计
+├── maintenance.md            # inventory 脚本运行契约 + CP-CODE-DS-01
+└── raw/                      # inventory / filesystem / navsim_references / nuscenes_references
 ```
 
-**它不是 A1–A5**，不能用于满足 `CP-2b`。其自述状态为 **「PASS（方案可审核）/ BLOCKED（未获 Human 路径批准）」**，提案是在 `/gs/bs/tga-RLA/qdeng/datasets/` 建 canonical symlink 层，并声明本轮**未执行任何 `mv`/`cp`/`rm`、未创建或替换任何 symlink**。
+**它们都不是 A1–A5**，不能用于满足 `CP-2b`。总状态 **FAIL**。各份自述状态：
 
-> ⚠️ **归档 ≠ 批准。** 该路径方案仍待 Human 单独裁决；在获批前不得据此移动或链接任何数据。
+| 文件 | 自述状态 |
+|---|---|
+| `path_layout.md` | PASS（方案可审核）/ **BLOCKED（未获 Human 路径批准）**；提案在 `/gs/bs/tga-RLA/qdeng/datasets/` 建 canonical symlink 层，声明**未执行任何 `mv`/`cp`/`rm`、未创建或替换任何 symlink** |
+| `maintenance.md` | PASS（维护方案已写明）/ **BLOCKED（脚本实现等待 Human PASS）**；待批代码卡 = **`CP-CODE-DS-01`**（`scripts/audit/datasets/inventory_datasets.py` + `update_dataset_inventory.body.sh`），批准口令 `PASS CP-CODE-DS-01`，**收到前不实现、不提交** |
+| `README.md` / `NAVSIM_inventory.md` / `nuScenes_inventory.md` / `download_gap_list.md` | **FAIL**；均声明**没有下载、安装、解压、移动、复制、删除、覆盖、建 symlink、改训练配置，也没有运行 H0 / Smoke Test / 训练 / 评测** |
+
+> ⚠️ **归档 ≠ 批准。** 路径方案与 inventory 脚本均仍待 Human 单独裁决；在获批前不得据此移动、链接任何数据或落库脚本。
+> ⚠️ **`path_layout.md` 的 canonical 根不是空目录**：`/gs/bs/tga-RLA/qdeng/datasets/` 已存在且含 `Bench2Drive-Base`、`Bench2Drive-mini`。实施时须逐级新建并保留这两项，**不得把已有根当空目录覆盖**。
 > `raw/` 内为 `.jsonl`，不受 `EF-3` 的 `*.json` 规则影响，无需白名单。
 
 ### 3.6 `A5`｜训练前配置与数据冻结审计 🆕
@@ -773,6 +808,127 @@ docs/audits/datasets/
 - 每个 run 在提交前生成 `config.frozen.yaml`，其内容必须与 A5 表及 registry 计划行一致；Human 检查后对两者记录 sha256。检查后任何配置、manifest、代码或初始化变化都使原 `PASS` 失效，必须新建 `run_id`、重做 A5 与 `CP-CODE` / `CP-2b`。
 - **A5 未 `PASS`：禁止 Smoke Test；Smoke Test 未通过：禁止 Full Experiment。**
 
+### 3.7 数据集实测盘点 🆕（2026-09-10 同步）
+
+> 来源：`docs/audits/datasets/` 全套五份（`README.md` / `NAVSIM_inventory.md` / `nuScenes_inventory.md` / `download_gap_list.md` / `path_layout.md`），snapshot `20260910T092936+0900`，Git SHA `b95916ff` / DIRTY；发起节点 `r4n11`，执行者 Codex（UGE owner `uq02279`）。
+> **性质**：这是**盘点**，不是 A1–A5，**不解除 `CP-2b`**。总状态 **FAIL**。方法为逐 pickle/YAML/token 解析、逐引用 `exists + size`、官方 v2.2 filter 交集、官方 `assert_download.py`、devkit init、各根 128 文件抽样解码。**身份一律由 pickle/token 判定，不用目录名。**
+> ⚠️ 报告自述：**抽样无错误不能证明未抽样文件无损；全量内容 checksum 仍 UNKNOWN。**
+> 🔴 **三个长扫 job 未正常结束**（`README.md` job 账本）：`8621347`（filesystem，2h TIMEOUT）、`8621392`（NAVSIM refs，2h TIMEOUT，完成到 `dataset_norm` 即被杀）、`8623456`（processed bytes/mtime，38m15s 后主动取消）。**`dataset_aug` / `dataset_perturbed` 的全量引用完整性与体量因此保留 UNKNOWN** —— 下表中它们的"判定"列不是完整结论。
+
+#### 3.7.1 NAVSIM / OpenScene 侧
+
+`$OPENSCENE_DATA_ROOT = /gs/bs/tga-RLA/qdeng/navsim_workspace/dataset`
+
+| 组件 | split | 实测 | 判定 | 本冲刺相关性 |
+|---|---|---|---|---|
+| camera history blobs | navtrain / trainval | current **826,304/826,304**；history unique **1,219,936/1,219,982**，缺 **46**（3 logs / 8 channels；另 2 个 `missing_camera/*` 声明不算缺口） | PARTIAL | **P0**，F0/F1 train |
+| RAP processed target | navtrain-derived | 见 §3.1 / §3.5：`dataset_norm` 命中 navtest 10 logs/1,365 tok、**navhard v2.2 7/44**、warmup_two_stage v2.2 1/2；raster 缺 259,287/414,936 | PARTIAL | **P0**，「不是 raw 下载问题」 |
+| augmented metadata/raster | RAP processed | 17,299 pickle，**其中 20 个 EOF/truncated**；14,589,551 records；camera jpg 4,507,451 | PARTIAL | **P0** |
+| maps | `nuplan-maps-v1.0` | 路径与版本 PRESENT；**内容级全量校验 UNKNOWN**（无官方 archive checksum） | UNKNOWN | **P0** |
+| raw mini | mini | 64 pickle / 51,867 tokens；refs **414,936/414,936**；decode 128/128 | **PRESENT** | P3 |
+| raw test | test / navtest | 147 pickle / 75,122 tokens；refs **600,976/600,976**；navtest v2.2 136/12,146 全命中 | **PRESENT** | P1，**不得训练读取** |
+| navhard_two_stage | v2.2 | 2,731 pickle / 13,655 records；refs **109,240/109,240**；camera-only 1,423,089 files | 内容 PASS / provenance UNKNOWN | P1，**不得训练读取** |
+| warmup_two_stage | v2.2 | 102 pickle / 510 records；refs **4,080/4,080** | 同上 | P2，**不得训练读取** |
+| private_test_hard_two_stage | v2.2 | 866 pickle / 4,330 records；refs **34,640/34,640** | 同上 | P2，**不得训练读取** |
+| private_test_hard 路径接合 | — | metadata 根单独看缺 2,840/2,840；对 staging blob 根则 2,840/2,840 present | **不是下载缺口，是 path layout 未接合** | P1 |
+| 完整 OpenScene sensor | full trainval（≠ navtrain） | 1,219,960 present / **4,632,115 missing**，coverage **20.8466%** | PARTIAL | **P3，本冲刺不需要** |
+
+> 🔴 **不得用 full-trainval 的 20.85% coverage 替代 navtrain 的定向完整性**（原文明示）。这两个数字量级差三个数量级，混用会把「几乎完整」误报成「几乎全缺」。
+
+**raw split 逐引用完整性（`NAVSIM_inventory.md`，身份由 pickle/token 判定）：**
+
+| split | pickle / records | unique logs / tokens | refs present/missing | missing rate | 每路 camera files | 判定 |
+|---|---:|---:|---:|---:|---:|---|
+| mini | 64 / 51,867 | 64 / 51,867 | **414,936 / 0** | 0% | 51,867 | PRESENT |
+| trainval | 1,320 / 731,510 | 1,320 / 731,510 | 1,219,960 / 4,632,115 | 79.1534% | 152,495 | PARTIAL |
+| test | 147 / 75,122 | 147 / 75,122 | **600,976 / 0** | 0% | 75,122 | PRESENT |
+| private_test_hard（默认 blob 根） | 1 / 355 | 71 / 355 | 0 / 2,840 | 100% | 0 | **路径不接合，非缺失** |
+
+> ⭐ **raw 侧 8 路相机全部齐全**：`raw trainval` 的 `CAM_B0/F0/L0/L1/L2/R0/R1/R2` **各 152,495**。对照 `dataset_norm` 主 rendered root 的 `B0 48 / F0 51,898 / L0 51,898 / L1 0 / L2 0 / R0 51,900 / R1 0 / R2 0` —— **`C_d` 缺 `CAM_B0` 是 RAP processing 侧的问题，raw 侧不缺。**
+
+**`navtrain` 4-history 缺口定位（`NAVSIM_inventory.md`）**：当前配置确认使用 `num_history_frames: 4`（与 `SD-10` 冻结值一致），故历史帧是**必需**而非可选。46 个物理缺口来自 80 次历史引用，涉及 10 个 current token / 6 个 history token / **3 个 log**：`2021.06.08.12.54.54_veh-26_04262_04732`、`2021.06.08.14.35.24_veh-26_02555_03004`、`2021.06.14.17.26.26_veh-38_04544_04920`。按 channel：`B0/F0/L1/L2/R0/R1` 各 6，`L0/R2` 各 5。
+官方 `navtrain_{current,history}_{1..4}.tgz` 的期望 MD5 已抄录在 `NAVSIM_inventory.md`「maps 与 archive」节，**但本地不存在任何 navtrain archive**，故 MD5 校验状态为 `NOT_AVAILABLE` —— **绝不可对解压目录伪造 archive MD5 结论**。
+
+#### 3.7.2 nuScenes 侧
+
+主根 `/gs/bs/tga-RLA/qdeng/data/nuscenes`：`498,108,321,792` bytes / `4,377,830` files / 36 dirs；非 symlink；Lustre fsid `25c66b0a00000000`。**无 `v1.0-mini/`、`lidarseg/`、`panoptic/`。**
+
+| version | scene | sample | sample_data | annotation | log | calibrated_sensor | ego_pose |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `v1.0-trainval` | 850 | 34,149 | 2,631,083 | 1,166,187 | 68 | 10,200 | 2,631,083 |
+| `v1.0-test` | 150 | 6,008 | 462,901 | 0（官方不公开，不判缺失） | 15 | 1,800 | 462,901 |
+| `v1.0-mini`（repo 副本） | 10 | 404 | 31,206 | 18,538 | 8 | 120 | 31,206 |
+
+所有表 `count == unique token`，duplicate = 0；三类外键（`calibrated_sensor_token` / `ego_pose_token` / `sample_token`）missing 均为 **0**。
+
+**blob 完整性（逐引用）：**
+
+| version | present | missing | missing rate | 缺口形态 |
+|---|---:|---:|---:|---|
+| trainval | 2,598,478 | **32,605** | **1.2392%** | 仅 `sweeps/RADAR_BACK_RIGHT`（156,460/189,065）；**六路 camera 的 samples 与 sweeps 全部 PRESENT** |
+| test | 124,519 | **338,382** | **73.0992%** | 六路 camera sweeps + 五路 radar sweeps **全缺**；samples 与 LIDAR sweeps 完整 |
+| repo mini | 17,198 | **14,008** | **44.8875%** | 全部 camera files + 至少一个 map mask |
+
+**devkit init vs 官方 assert（两者不冲突）：**
+
+| root/version | devkit init | official `assert_download.py` | 首条失败证据 |
+|---|---|---|---|
+| main / trainval | PASS（850 scenes / 34,149 samples） | **FAIL** | 缺 `sweeps/RADAR_BACK_RIGHT/n015-...1531883531584120.pcd` |
+| main / test | PASS（150 / 6,008） | **FAIL** | 缺 `sweeps/RADAR_FRONT/n008-...1533153858046583.pcd` |
+| repo / mini | **FAIL** | 未越过初始化 | 缺 `maps/53992ee3023e5494b90c316c183be829.png` |
+
+**三个独立完整 mini 根**（均 `sample_data` 31,206/31,206、非 symlink）：`BEVFormer/data/nuscenes`（5,900,841,499 B）、`data-mini/nuscenes`（5,900,827,159 B）、`GenAD-archive/data-mini/nuscenes`（5,900,827,159 B）。是否 byte-identical / hardlink **UNKNOWN**，本轮不删不并。
+
+> ✅ **mini 不需要重新下载。** repo 副本的 404 sample tokens 全属于 trainval，且已有三份完整副本 —— 这是 **path/config 问题，不是 raw 缺失**。`A4` 的默认 `--nuscenes-root` 指向不完整的 repo 副本（`A4_source_pixel_boundary.md` 已记），属同一问题。
+
+#### 3.7.3 官方 v2.2 scene-filter 交集（🔴 影响 `SD-15`）
+
+官方对照来自 `/gs/bs/tga-RLA/qdeng/navsim_workspace/navsim`，Git **`v2.2-17-ga5f7110`**。RAP 内的 `navtrain/navtest/navmini` membership 与该 checkout **相等**。
+
+> 🔴 **但 RAP 的 `warmup_test_e2e.yaml` 与 `private_test_e2e.yaml` 是旧定义，`NAVSIM_inventory.md` 明示不得拿它们代替 v2.2 two-stage 真值。**
+
+| source | navtrain | navtest | navmini | navhard_2s | warmup_2s | private_hard_2s |
+|---|---:|---:|---:|---:|---:|---:|
+| raw mini | 52/6,104 | **10/1,365** | 62/396 | **7/44** | **1/2** | 0/0 |
+| raw trainval | 1,192/103,288 | **10/1,365** | 62/396 | **7/44** | **1/2** | 0/0 |
+| raw test | 0/0 | 136/12,146 | 10/0 | 76/450 | 7/16 | 0/0 |
+| **processed `norm`** | 52/6,104 | **10/1,365** | 62/396 | **7/44** | **1/2** | 0/0 |
+| **processed `aug`** | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 |
+| **processed `perturbed`** | 0/**5,095** | 0/0 | 0/**320** | 0/0 | 0/0 | 0/0 |
+
+**三条由此确立：**
+
+1. **`dataset_norm` 的交集与 `raw mini` 逐格相同** → 它是 **mini 派生**，不是 navtrain 派生。§3.5 `A1_clean_subset` 的"干净可用仅 52 logs"因此是 **mini 的性质**。
+2. 🔴 **`SD-15` 的决策材料变了。** `A1_clean_subset` 判 log 级归零的直接原因是「`warmup_test_e2e` 命中 64 个 log 中的 62 个」—— 而 `warmup_test_e2e` 是**旧定义**；v2.2 真值 `warmup_two_stage` 只命中 **1 log / 2 tokens**。**`SD-15` 必须在 v2.2 定义下重算后再裁**，不得沿用 v2.2.3 §3.5 表中的数字。（注：`navmini` 的 62/396 不受影响，它是否算评测侧本身也需在 `SD-15` 中一并明确 —— §4.1 的禁读清单**未列入** `navmini`。）
+3. **`processed aug` 的 0/0 不能读成"干净"**（原文明示）：其 source-token provenance 不存在，变换后 token 与官方 filter 无交集**不能**推论无污染。**`processed perturbed` 则是新查出的污染** —— 命中 navtrain 5,095 / navmini 320 tokens。
+
+#### 3.7.4 nuPlan raw 根（重跑 RAP processing 的前置）
+
+| 项 | 实测（`NAVSIM_inventory.md`） |
+|---|---|
+| 路径 | `/gs/bs/tga-RLA/qdeng/nuplan_dataset`（**独立 nuPlan raw 根，不是 NAVSIM split**） |
+| 体量 | `1,202,896,064,512` bytes / `2,594,741` files / `659` dirs |
+| file mtime 范围 | `2022-05-05` – `2024-01-31` |
+| 判定 | **PRESENT，内容级完整性 UNKNOWN** |
+| maps | `NUPLAN_MAPS_ROOT` = `.../navsim_workspace/dataset/maps`，`2,853,234,984` bytes / 14 files / 19 dirs；根级与子目录级 `nuplan-maps-v1.0.json` 均存在 → **路径/版本 PASS，内容级完整性 UNKNOWN** |
+
+> ⚠️ **"根存在"≠"可重跑"。** 仍然 UNKNOWN 的是：该根的 `splits/trainval/*.db` 对 `navtrain` 1,192 logs 的**log 级覆盖率**。这是「重跑 RAP processing」这条路唯一未验证的前置，须单独审计后才能进入排期。
+
+#### 3.7.5 对本冲刺的净影响
+
+| # | 结论 |
+|---|---|
+| 1 | **P1 F1 所需的 nuScenes 资产齐全。** structured metadata / maps / labels 全 PRESENT，FK 0 missing。缺的 32,605 个 `RADAR_BACK_RIGHT` sweeps 与 test sweeps **不在 F1 的读取契约内**（§4.1：F1 只读 maps / agents / ego-world state / future trajectory） |
+| 2 | **nuScenes 的 camera + calibration 物理上完整可读**（trainval 六路 samples/sweeps 引用全 present，抽样 128/128 可解码）。这只影响 **P2 X 系列**的物理可行性；`SD-1` 的 P1 禁令不因此松动 —— **存在 ≠ 获准使用** |
+| 3 | **`A1` 的污染判定加强**：navhard v2.2 交集实测 7 logs / 44 tokens（原为 UNKNOWN）；`dataset_perturbed` 亦查出命中 navtrain 5,095 / navmini 320 tokens |
+| 4 | **新增三项此前未记录的资产缺陷**：`dataset_aug` 20 个 EOF/truncated pickle（`A1_rap_datasets.md` 未检出）；`navtrain` history camera 缺 46 文件；`dataset_perturbed` 污染 |
+| 5 | **下载不是当前瓶颈。** 唯一可能需要定向补的是那 46 个文件，且其所属 `navtrain_history_{1..4}.tgz` shard **UNKNOWN** —— 原文明确警告：先定位 manifest，**别盲下 445 GB** |
+| 6 | 🔴 **`SD-15` 的既有数字作废**（见 §3.7.3 第 2 条），须在 v2.2 定义下重算后再裁 |
+
+**`README.md` 明列的 Human 检查门（四项）**：① P0 的 46-file 定向补全策略；② processed clean manifest 边界；③ canonical symlink 映射；④ `maintenance.md` 的 `CP-CODE-DS-01`。**收到明确 `PASS CP-CODE-DS-01` 前，不创建 `scripts/audit/datasets/*` 两个脚本，也不提交。**
+
+**仍为 UNKNOWN（不得补值）**：46 个 history 文件的 archive shard；three two-stage 解压物的官方 v2.2 provenance（本地 archive 已不存在，仅有 metadata aggregate SHA-256 作为未来基线）；maps 的官方全量内容 manifest；nuScenes 缺失 archive 的压缩/解压大小；三份 nuScenes mini 与 legacy mini pool 是否 byte-identical / hardlinked；未抽样文件的可解码性；CAN bus 是否进入最终 F1 manifest；**`dataset_aug` / `dataset_perturbed` 的全量引用 missing/duplicate/extra 与 source-token provenance（deep job 超时）**；**`nuplan_dataset` 对 `navtrain` 的 log 级覆盖率**。
+
 ---
 
 ## 4. 数据集策略与数据流向规范
@@ -787,6 +943,17 @@ docs/audits/datasets/
 | Source 扩展 | **KITTI、Waymo** | 后续 | 同上，且须先通过 schema 合格性审计 | 同上 |
 
 > 术语一律用 **External / Target**，不用 Old / New（佐藤 9/8 明确要求：数据新旧不决定其研究角色）。
+
+**「评测侧数据」的物理清单（§3.7 实测，用于 `R3` 路径黑名单与 loader allowlist 核对）**：
+
+```
+$OPENSCENE_DATA_ROOT/navsim_logs/test/            $OPENSCENE_DATA_ROOT/sensor_blobs/test/
+$OPENSCENE_DATA_ROOT/navhard_two_stage/           $OPENSCENE_DATA_ROOT/warmup_two_stage/
+$OPENSCENE_DATA_ROOT/private_test_hard_two_stage/ $OPENSCENE_DATA_ROOT/navsim_logs/private_test_hard/
+navsim_workspace/navsim/download/private_test_hard_navsim_sensor/private_test_hard/
+```
+
+> 最后一条是 `private_test_hard` 的实际 blob 所在（metadata 与 blob 分处两根，§3.7 记为「path layout 未接合」）。**它同样是评测/比赛侧，不得训练读取**；在 `path_layout.md` 获批前也不得为它建 symlink。
 
 ### 4.2 数据流向（三维正交，不得压成一维）
 
@@ -951,7 +1118,25 @@ X 系列需串行完成：① renderer 接受第二套 camera config ② loader 
 |---|---|---|
 | `$RAP_ROOT` | `/gs/bs/tga-RLA/qdeng/RAP` | `env/stage_a.env` |
 | TSUBAME group | `tga-RLA` | `qsub -g tga-RLA` |
-| 其他 | `$OPENSCENE_DATA_ROOT` `$NAVSIM_EXP_ROOT` `$NAVSIM_DEVKIT_ROOT` `$RASTER_SRC_ROOT` `$STAGE_A_OUT` `$NUPLAN_MAPS_ROOT` `$NAVHARD_TWO_STAGE_ROOT` `$HF_HOME` `$REF_DINO_CKPT` `$DINO_PRETRAINED_CKPT` | `env/stage_a.env`（**含敏感值，勿入库**） |
+| `$OPENSCENE_DATA_ROOT` | `/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset` | §3.7 盘点实测 |
+| `$NUPLAN_MAPS_ROOT` | `/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset/maps`（`NUPLAN_MAP_VERSION=nuplan-maps-v1.0`） | 同上 |
+| `$NAVSIM_DEVKIT_ROOT` | `/gs/bs/tga-RLA/qdeng/RAP` | 同上 |
+| `$NAVSIM_EXP_ROOT` | `/gs/bs/tga-RLA/qdeng/RAP/exp` | 同上 |
+| 其他 | `$RASTER_SRC_ROOT` `$STAGE_A_OUT` `$NAVHARD_TWO_STAGE_ROOT` `$HF_HOME` `$REF_DINO_CKPT` `$DINO_PRETRAINED_CKPT` | `env/stage_a.env`（**含敏感值，勿入库**） |
+
+**`$OPENSCENE_DATA_ROOT` 实际布局（§3.7 实测，非提案）**：
+
+```
+/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset/
+├── maps/                                    # nuplan-maps-v1.0（内容级校验 UNKNOWN）
+├── navsim_logs/{mini,trainval,test,private_test_hard}/
+├── sensor_blobs/{mini,trainval,test}/       # trainval 对 navtrain 定向仅缺 46 文件
+├── navhard_two_stage/                       # 🔴 评测侧，v2.2，不得训练读取
+├── warmup_two_stage/                        # 🔴 评测侧
+└── private_test_hard_two_stage/             # 🔴 比赛侧
+```
+
+> 其他相关根（§3.7 登记，**均非 symlink，本冲刺不移动不合并**）：`/gs/bs/tga-RLA/qdeng/data/nuscenes`（A2 对象）、`data-mini/nuscenes`、`BEVFormer/data/nuscenes`、`GenAD-archive/data-mini/nuscenes`（三份完整 nuScenes mini）、`/gs/bs/tga-RLA/qdeng/nuplan_dataset`（**独立 nuPlan raw 根；完整性与覆盖率无任何审计覆盖**）。
 
 冲刺新增变量写进 `env/sprint_20260909.env`，**继承**而非复制：
 
@@ -1329,7 +1514,7 @@ A1–A5、H0 或技术检查未通过时，写 `BLOCKED` / `INVALID` / `Technica
 | 1 | 我希望老师判断什么 | 直接列 `SD-4` / `SD-5` / **`SD-12`（合法训练集选哪个池）** / **`SD-15`（评测侧剔除粒度）** / **`SD-16`（`4cam_v1` 根可用性）** / 3D baseline 排期 / RL 投入比例；已冻结 P1 access boundary 作为前提 |
 | 2 | 问题定义与协议 | target 是谁、何时知道 calibration、zero/few-shot 数什么、10% scene/log budget + A1/A5 绝对计数 |
 | 3 | 三维数据流表 | **场景来源 × 渲染 rig × 接受的 loss**（修正 Old/New Synthetic 混淆） |
-| 4 | 资产、训练准备审计与阻断证明 | A1 污染检查、A2 完整度、A3 ckpt 合规、A4 边界现状、A5 冻结配置。**核心一张表 = `A1_clean_subset` 的 `C_d` 完整度**：主 raster 根齐全 token 恒为 0（按 3 相机渲制），`SD-3` 的 10% 需 ≈119 logs 而干净可用仅 52 logs。H0 因 `EF-6`（`ogr2ogr` 缺失）+ §3.6 第 8 项（fixture 无来源）双重阻断，会前不可达 |
+| 4 | 资产、训练准备审计与阻断证明 | A1 污染检查、A2 完整度、A3 ckpt 合规、A4 边界现状、A5 冻结配置。**核心一张表 = `A1_clean_subset` 的 `C_d` 完整度**：主 raster 根齐全 token 恒为 0（按 3 相机渲制），`SD-3` 的 10% 需 ≈119 logs 而干净可用仅 52 logs。**补 §3.7 的一行对照**：raw 侧 `navtrain` 定向仅缺 46 文件、nuScenes structured 全 PRESENT —— 即**阻断在 RAP processed 产物，不在 raw 数据**。H0 因 `EF-6`（`ogr2ogr` 缺失）+ §3.6 第 8 项（fixture 无来源）双重阻断，会前不可达 |
 | 5 | 最小对照 pilot 结果 | F0/F1；全部标 preliminary / single DEV subset / seeds=20260909；含公平性核对表 |
 | 6 | 我能下 / 不能下的结论 | 科学结论统一 `Inconclusive`；并列原始差值、方向、限制与下一步 confirmatory 缺口。**必含 `SD-9`：F1 的 external 流恒无交通灯 —— 作为「external 数据是否污染 target」的首个具体实例，并给出分层评估的证伪方案** |
 | 7 | **P2 X 系列设计 + P1 隔离** | 展示已冻结 access boundary、P2 不得流入 P1，以及 `SD-4` 待裁决项 |
