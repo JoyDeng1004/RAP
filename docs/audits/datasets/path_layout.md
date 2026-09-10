@@ -6,6 +6,8 @@
 
 第一轮只建立逻辑视图最稳妥：保留现有数据原位，在 `/gs/bs/tga-RLA/qdeng/datasets/` 建 canonical symlink layer。**本轮没有执行 `mv`、`cp`、`rm`，也没有创建或替换任何数据 symlink。** symlink 方案不复制数据，新增空间只包含目录项，预计低于 1 MiB；真实 inode/配额开销由建链时文件系统决定。
 
+`/gs/bs/tga-RLA/qdeng/datasets/` 已存在且非空，当前含 `Bench2Drive-Base` 和 `Bench2Drive-mini`。提议的 `raw/`、`processed/`、`manifests/`、`archives/` 尚未创建。实施时必须在保留这两项的前提下逐级新建，不得把已有根当空目录覆盖。
+
 ## 审计信息
 
 | 字段 | 值 |
@@ -27,15 +29,16 @@
 | `.../dataset/sensor_blobs/{mini,trainval,test}` | `datasets/raw/navsim/openscene/sensor_blobs/{mini,trainval,test}` | raw OpenScene blobs | mini/test 对 metadata 引用完整；trainval PARTIAL | keep + per-split symlink | 把 PARTIAL 根标成 full trainval 会误导 | 同上 | 同上 |
 | `.../dataset/navhard_two_stage` | `datasets/raw/navsim/two_stage/navhard_two_stage` | official filtered eval | 引用完整；v2.2 provenance 仍需 archive/checksum 证实 | keep + symlink，名称不改 | 评测数据误入训练；旧 metadata 风险 | 同上 | 同上 |
 | `.../dataset/warmup_two_stage` | `datasets/raw/navsim/two_stage/warmup_two_stage` | official filtered challenge | 引用完整；v2.2 provenance 仍需证实 | keep + symlink | 同上 | 同上 | 同上 |
-| `.../dataset/private_test_hard_two_stage` | `datasets/raw/navsim/two_stage/private_test_hard_two_stage` | official filtered challenge | 引用完整性等 deep 结果；版本 provenance UNKNOWN | keep + symlink | 许可证/比赛数据隔离；绝不能训练读取 | 同上 | 同上 |
+| `.../dataset/private_test_hard_two_stage` | `datasets/raw/navsim/two_stage/private_test_hard_two_stage` | official filtered challenge | `34,640/34,640` 引用存在；版本 provenance UNKNOWN | keep + symlink | 许可证/比赛数据隔离；绝不能训练读取 | 同上 | 同上 |
+| `.../navsim/download/private_test_hard_navsim_sensor/private_test_hard` | 待 Human 决定是否接入 `datasets/raw/navsim/openscene/sensor_blobs/private_test_hard` | raw challenge blobs | `2,840/2,840` metadata refs present；数据已存在 | keep；获批后只建新 symlink | 当前 metadata/blob 分居两根；误接入训练风险 | 同上 | 删除新 symlink；原目录不变 |
 | `/gs/bs/tga-RLA/qdeng/data/nuscenes` | `datasets/raw/nuscenes` | raw nuScenes | v1.0-trainval/test metadata 存在，但 sample_data 均 PARTIAL | keep + symlink | devkit init 可过，不能误写成完整下载 | 同上 | 同上 |
 | `/gs/bs/tga-RLA/qdeng/data-mini/nuscenes` | `datasets/raw/nuscenes-mini`（若 Human 选择保留独立 mini） | raw nuScenes mini | PRESENT：31,206/31,206 sample_data 非空 | keep；是否建额外 symlink 待 Human 决定 | 与 canonical full root 分叉；三份独立副本浪费空间 | 同上 | 同上 |
 | `/gs/bs/tga-RLA/qdeng/BEVFormer/data/nuscenes` | 不进入 canonical；登记 manifest | raw + processed metadata 混合 | mini 引用 PRESENT；独立副本 | keep | 与 `data-mini` 内容接近但不是 symlink，误删风险 | 0 | 无操作 |
 | `/gs/bs/tga-RLA/qdeng/GenAD-archive/data-mini/nuscenes` | 不进入 canonical；登记 manifest | raw + processed metadata 混合/archive workspace | mini 引用 PRESENT；独立副本 | keep | archive workspace 归属和保留期 UNKNOWN | 0 | 无操作 |
 | `/gs/bs/tga-RLA/qdeng/RAP/nuscenes-mini/nuscenes` | 不进入 canonical；标记 incomplete fixture | raw 副本/fixture | PARTIAL：metadata 有 31,206 引用，但 required blobs/maps 缺失 | keep | 当前工具默认指向这里，会得到错误路径 | 0 | 无操作 |
 | `/gs/bs/tga-RLA/qdeng/RAP/dataset_norm` | `datasets/processed/navsim/rap/norm` | RAP processed derivative | PARTIAL / CONTAMINATED | keep + symlink 仅供审计；训练默认不得注册 | 评测 split 污染、raster 引用缺失 | symlink，约 0 data bytes | 删除新 symlink |
-| `/gs/bs/tga-RLA/qdeng/RAP/dataset_aug` | `datasets/processed/navsim/rap/aug` | RAP processed derivative | split 交集和配对完整性由本次 deep 报告判定 | keep + symlink 仅供审计 | 数百万文件；来源/provenance 不完备 | 同上 | 同上 |
-| `/gs/bs/tga-RLA/qdeng/RAP/dataset_perturbed` | `datasets/processed/navsim/rap/perturbed` | RAP processed derivative | split 交集和配对完整性由本次 deep 报告判定 | keep + symlink 仅供审计 | 同上 | 同上 | 同上 |
+| `/gs/bs/tga-RLA/qdeng/RAP/dataset_aug` | `datasets/processed/navsim/rap/aug` | RAP processed derivative | PARTIAL：20 个不可读 pickle；来源映射和全量配对 UNKNOWN | keep + symlink 仅供审计；训练默认不得注册 | 数百万文件；不能由变换后 token 交集 0 推断无污染 | 同上 | 同上 |
+| `/gs/bs/tga-RLA/qdeng/RAP/dataset_perturbed` | `datasets/processed/navsim/rap/perturbed` | RAP processed derivative | PARTIAL：命中 navtrain 5,095 / navmini 320 tokens；全量配对 UNKNOWN | keep + symlink 仅供审计；训练默认不得注册 | 用途/来源边界未冻结 | 同上 | 同上 |
 | 目前未确认统一根 | `datasets/processed/nuscenes/rap/{raster,cache}` | processed/cache | MISSING/UNKNOWN | 只预留逻辑目录；本轮不创建 | processed 缺失不能靠重下 raw 修复 | 0 | 无操作 |
 | `/gs/bs/tga-RLA/qdeng/navsim_workspace/navsim/download/openscene_sensor_test_camera_1.tgz.1` | `datasets/archives/navsim/` | incomplete archive fragment | PARTIAL，3,370,355,258 bytes；不是 navtrain archive | keep；登记但不建 canonical 链 | 文件名 `.tgz.1` 暗示未完成，不能当完整 archive | 0 | 无操作 |
 | 未来 manifest | `datasets/manifests/` | manifest | MISSING | 获批后创建文本 manifest，不搬数据 | manifest 与物理数据漂移 | 很小 | Git/快照恢复 |
