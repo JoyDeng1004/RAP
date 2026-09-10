@@ -1,8 +1,9 @@
-# 2026-09-09 → 09-11｜48h 实验冲刺计划（Sprint Plan）· **v2.1**
+# 2026-09-09 → 09-11｜48h 实验冲刺计划（Sprint Plan）· **v2.2**
 
 > v2 以 **`docs/20260909/` 下的现有文件 + RAP 开源代码库（本仓库）** 为唯一基准重写，补齐 TSUBAME4.0 执行架构、真实路径规范、数据集策略与 Git 并行方案。
 > 所有涉及云端的断言均已降级为 **待审计项**，并附可执行的审计命令。
 > v2.1 增补逐次 `CP-CODE` Human 检查、原子 commit / 小步迭代规则，以及进入 Smoke Test 前的 `A5` 训练配置与数据冻结门。
+> v2.2 记录 Human 对 `SD-0` 选项 B 及 `SD-7/SD-8` 的裁决，并冻结当前 development pilot 的预算、实验臂、seed、指标、access boundary、checkpoint 规则、Simulator/RL 投入上限与脚本入库边界。
 
 ---
 
@@ -48,8 +49,8 @@ Problem → Hypothesis → Research Spec → Implementation Spec
 | 阶段 | 状态 | 载体 |
 |---|---|---|
 | Problem | ✅ 已定义 | 9/8 Memo 一、1 |
-| Hypothesis | 🔶 受 `SD-0` 影响 | 见 `SD-0` |
-| Research Spec | 🔶 受 `SD-0` 影响 | 见 `SD-0` |
+| Hypothesis | ✅ F0/F1 development pilot 已冻结 | §2 `SD-0/1/2/3/6`、§5.4 |
+| Research Spec | 🔶 P1 pilot 已冻结；P2 仍受 `SD-4/5` 影响 | §2、§5 |
 | **Implementation Spec** | 🔶 **本文档** | 本文件 |
 | Environment Check | ⬜ 待执行 | §1 `EF-*` + §3 资产审计 |
 | Smoke Test | ⬜ 受 `CP-2b` 门控 | §3.6、§6 |
@@ -101,7 +102,7 @@ Problem → Hypothesis → Research Spec → Implementation Spec
 2. §8 的 branch / worktree 方案**无法携带它们**（worktree 只 checkout 被跟踪的文件）；
 3. 每个 run 的 provenance 缺失最关键的一环——实际提交的作业脚本内容。
 
-**处置（`SD-8` 裁决后执行）**：
+**处置（`SD-8` 已通过；仍须按 `CP-CODE` 获得 Human `PASS` 后执行并提交原子 commit）**：
 
 ```gitignore
 scripts/*
@@ -142,42 +143,55 @@ scripts/*
 
 > 未裁决前，相关代码不写、相关实验不跑。
 
-### `SD-0｜冻结规格不在基准内` 🆕 v2 新增
+### `SD-0｜冻结规格不在基准内` ✅ Human 已裁决：选项 B
 
 v1 的 `SD-1/2/3`、`F0/F1/F2/F3/A0/A1` 命名、`b*=10%`、`δ_main=1.0`、`Final EPDMS` 判据，**全部引自 `DriveWeave_proposal.md`**，而该文件不在本仓库、也不在 `docs/20260909/`。
 
-**待裁决**：
-- **选项 A（推荐）**：把 proposal 复制进 `docs/20260909/context/DriveWeave_proposal.md`，恢复其"冻结规格"地位，本计划的引用全部有效。
-- **选项 B**：宣布 proposal 不再具约束力，则下列约束**全部失效并需重新定义**：预算口径、主指标、效应阈值、run 数设计、access boundary。
+**Human 决议（2026-09-09）**：选择 **选项 B**。`DriveWeave_proposal.md` 不作为本冲刺的约束来源；其中派生的 `b_min=100`、`δ_main=1.0`、`3 subsets × 2 seeds`、`Final EPDMS` 以及 F2/F3/A0/A1 的既有定义全部失效，不得继续当作冻结事实引用。
 
-**在裁决前**，本文件把关键约束**原文内联复述**（不再靠章节号引用），使文档自包含。
+**替代冻结协议（Human 已确认）**：
 
-### `SD-1｜方案 B 越过 source-pixel 边界` 🔴 最高优先
+| 项目 | 本冲刺冻结值 |
+|---|---|
+| Target budget | NAVSIM 合法训练集的 `scene/log`；比例 = **10%**；无最小 scene 数。绝对 scene/frame/image 数由 A1/A5 实测 |
+| 实验臂 | 当前只运行 **F0/F1**；X1/X2/X3 仅保留为 P2 规格；F2/F3/A0/A1 不属于本冲刺冻结协议 |
+| Run 身份 | 全部为 `development pilot`、`non-confirmatory`、`preliminary` |
+| Subset / seed / 重复 | 一个随机 DEV subset；`manifest_seed=20260909`；`training_seed=20260909`；F0/F1 各 1 次 |
+| 主指标 | NAVSIM **PDMS**；其既有分项为 secondary metrics；open-loop 仅为 diagnostic |
+| 效应阈值 | 当前 pilot **不设数值型 confirmatory threshold**；不得据单 subset / 单 seed 下 `Supported` 或 `Refuted`，科学结论统一为 `Inconclusive` |
+| Source RGB / calibration | P1（F0/F1）禁止读取；P2（X1/X2/X3）仅可为 external real/raster alignment 读取，且须与 P1 隔离并先通过 `SD-4/CP-3` |
+| Checkpoint | F0/F1 必须 from scratch；只允许同一 run 在 code/config/data hash 完全一致时续训；既有 checkpoint 仅作 A3 审计，不得作为 initializer、teacher、feature cache、pseudo-labeler 或超参数依据；P2 distillation 另行审批 |
 
-原 proposal 明文规定（内联复述）：nuScenes 作为 source 时，`所有 source RGB 与 source 相机标定` 为禁止输入；access audit 要求 `source RGB 读取数 / 解码张量数 / intrinsics 读取数 / extrinsics 读取数 全部等于 0`；renderer `只接受 C_d 作为唯一相机输入，source 相机文件在 loader allowlist 之外`。
+上述值如需改变，必须由 Human 新开决议、生成新 `run_id` 并重做 A5；不得在查看结果后回改本表。
 
-而池畑 9/2 的 core novelty（活用 external real image）与佐藤 9/8 有条件认可的 external alignment，**必须读 nuScenes RGB + nuScenes 标定**。
+### `SD-1｜source-pixel / calibration 边界` ✅ P1 已裁决；P2 受 `SD-4/CP-3` 门控
 
-**⚠️ v2 新证据**：`tools/render_nuscenes_camera_cross.py`（484 行）已存在于 `exp/rap-alignment-regression`。**若该工具读取 nuScenes 相机参数用于跨相机渲染，则 access boundary 可能已被现有代码越过。** 这是 `A4` 审计项，必须在裁决 `SD-1` 前查清。
+**P1（本冲刺 F0/F1）**：nuScenes 只允许读取 maps、agents、ego/world state 与 future trajectory labels；source RGB、source intrinsics、source extrinsics 的读取/解码计数必须全部为 0。F1 raster 只使用已知 target rig `C_d`。
 
-**影响面**：不是加一个 loss 开关。需要 ① renderer 接受第二套 camera config ② loader allowlist 放开 ③ 重写 access audit 判定 ④ 修改 non-claim 边界与 novelty boundary（原文把「no source pixels/calibration」列为对抗「reviewer 认为这就是 RAP + 另一个数据集」的核心防线）。
+**P2（X1/X2/X3）**：允许读取 external RGB 与对应 source calibration，但仅用于同场景、source-rig `C_s` 下的 external real/raster alignment。P2 必须使用独立协议、代码路径、产物目录和 access audit；不得把 P2 产物或 cache 输入 P1。
 
-**建议**：把 X 系列注册为并存协议 **P2**，不在 P1 内部放开 allowlist——那会同时毁掉两个主张。
-**裁决时机**：`CP-1`。未裁决 → X 系列全部不启动，冲刺退化为 F 系列 pilot（这本身仍是合格交付）。
+`A4` 仍是硬门：若现有工具或产物读取过 source RGB/calibration，必须标为 P2；不能用于 F0/F1，也不能声称满足 P1。X 系列在 `SD-4/CP-3` 前只写规格，不写代码、不运行。
 
-### `SD-2｜9/9–9/11 的 run 如何归类`
+### `SD-2｜9/9–9/11 的 run 如何归类` ✅ 已裁决
 
-confirmatory 设计要求 3 subsets × 2 seeds = 6 paired runs，且「若 F0-only power audit 显示 power < 80%，需在**查看 F1 结果之前**增加 subset」。本窗口只跑得起 1 subset × 1 seed；直接用 confirmatory subset 并查看结果等于提前开箱，损伤预注册效力。
+本窗口全部 run 均为 **development pilot**，不是 confirmatory experiment。使用一个随机 DEV subset：
 
-**建议**：新建 `seed=DEV` 的 development manifest，与 3 个 confirmatory subsets 互斥，所有 run 落 `$RAP_ROOT/outputs/sprint_20260909/pilot/`，标注 `non-confirmatory, excluded from confirmatory analysis`。PPT 上所有数字标 **preliminary / single subset / single seed**。
+- Target sampling unit = 合法 NAVSIM training `scene/log`；抽取比例 = 10%
+- `manifest_seed = 20260909`
+- `training_seed = 20260909`
+- F0/F1 使用同一份冻结 manifest、相同 seed，各运行 1 次
+- manifest 生成一次后保存 sha256；后续只读取该文件，不得重新抽样
+- 所有 run 落 `$RAP_ROOT/outputs/sprint_20260909/pilot/`，并标注 `non-confirmatory, preliminary, single subset, single seed`
 
-### `SD-3｜target budget 对外口径`
+未来 confirmatory protocol 的 subset、seed 和重复次数**尚未定义**，不得从已失效 proposal 恢复，也不得使用当前 pilot 结果反向选择。
 
-proposal 冻结 `b* = 10% of legal target training scenes`（单位 **scene/log**，不是 frame、不是分钟）、`b_min = 100 scenes`；而 9/8 你对佐藤讲的是「1000h external vs 10min target ≈ 6000:1」，9/2 与池畑也在「10 分钟 / NAVSIM 10%」之间来回。Memo 已注明后者是假设性例子。
+### `SD-3｜target budget 对外口径` ✅ 已裁决
 
-**影响面**：这是 external-alignment 论证的**唯一定量支点**（"target pair 太少所以 alignment 学不出来"）。口径不统一，9/11 现场会被直接拆掉。
+本冲刺 target budget 冻结为：**NAVSIM 合法训练集 scene/log 的 10%**。无 `b_min`；原 `b_min=100 scenes` 已随 `SD-0` 选项 B 失效。
 
-**建议**：统一到 **b\* = 10% navtrain scenes + b_min = 100 scenes**，PPT 上同时给出绝对 scene / frame / 等效时长三个值；「1:6000」只作 motivation 插图。
+- A1/A5 必须记录合法训练集总 scene/log 数、抽中数量、对应 frame/image/pair 数与 manifest sha256。
+- frame、image、pair 和等效时长只作描述性统计，不作为抽样单位。
+- 「1000h vs 10min ≈ 6000:1」只可作为会议中出现的假设性 motivation，不得作为实际预算或实测比例。
 
 ### `SD-4｜X 系列 alignment 规格未定`
 
@@ -186,7 +200,7 @@ proposal 冻结 `b* = 10% of legal target training scenes`（单位 **scene/log*
 2. alignment 在哪一层做（`B` 输出？`P_R/P_d` 输出 `F^R/F^I`？planning representation `G` 之后？）
 3. 跨 rig 共享哪些模块、按 rig 分叉哪些（池畑提的 rig-dependent embedding 要不要引入）
 4. 距离度量与权重（判别器 / 余弦 / MSE；λ 初值）
-5. 与既有 target R2R loss（A0/A1 轴）如何共存
+5. 与既有 target R2R loss 如何共存、是否需要单独的 on/off 消融
 
 **裁决时机**：`CP-3`，且必须在写 X 系列代码之前。
 
@@ -198,20 +212,21 @@ proposal 冻结 `b* = 10% of legal target training scenes`（单位 **scene/log*
 
 **建议**：本冲刺**不跑** X3，只带实验设计上会，当面裁决后再实现。
 
-### `SD-6｜冲刺期评测指标`
+### `SD-6｜冲刺期评测指标` ✅ 已裁决
 
-主指标为官方 NAVSIM-v2 Final EPDMS（含 Stage1/Stage2 及全部分项），open-loop 仅 diagnostic。官方评测墙钟耗时未知。
+本冲刺主指标为 NAVSIM **PDMS**；当前评测器已有的 PDMS 分项作为 secondary metrics。open-loop 指标仅为 diagnostic，不可替代 PDMS。
 
-**建议**：若 9/10 晚跑不完，允许只放代理指标，但必须 ① 标注 diagnostic-only ② 同时给出 EPDMS 的 ETA ③ **不得**据此下 Supported/Refuted（只能 Inconclusive）。**裁决时机**：`CP-4`。
+当前 development pilot 不设置数值型 confirmatory effect threshold。无论 F1 相对 F0 的方向或幅度如何，科学结论均为 `Inconclusive`；只允许报告原始差值、方向、公平性核对与限制。`Final EPDMS`、`δ_main=1.0` 不再属于本冲刺协议。
 
-### `SD-7｜Simulator/RL 投入上限`
+### `SD-7｜Simulator/RL 投入上限` ✅ Human 已裁决
 
 佐藤 9/8 新提，认为「可能研究价值更高」，甚至可各成一篇；池畑不知情。
-**建议**：硬时间盒 90 分钟，只做候选表 + 接口可行性判定，不写训练代码。
 
-### `SD-8｜是否把 `scripts/` 纳入版本控制` 🆕
+**Human 决议（2026-09-09）**：接受 **90 分钟硬时间盒**；本冲刺只整理候选表并判断接口可行性，**不写训练代码、不启动 Simulator/RL 训练**。到达时间上限即停止，并记录已完成项、未决问题与后续建议，不得挤占 F0/F1、A1–A5、H0 或汇报准备的关键路径。
 
-见 `EF-2`。**建议纳入**（只跟踪 `scripts/jobs/` 与 `scripts/audit/`）。不纳入则 §8 的并行方案无法成立。
+### `SD-8｜是否把 `scripts/` 纳入版本控制` ✅ Human 已裁决
+
+**Human 决议（2026-09-09）**：允许将 `scripts/jobs/` 与 `scripts/audit/` 纳入版本控制；`scripts/` 下其他内容继续忽略。具体 `.gitignore` 修改与目录纳入按 `EF-2`、§8.0 和 `CP-CODE` 执行，不得把未检查的其他脚本一并加入。
 
 ---
 
@@ -219,7 +234,7 @@ proposal 冻结 `b* = 10% of legal target training scenes`（单位 **scene/log*
 
 > **这是 Environment Check 阶段，必须在任何训练之前完成。**
 > 报告统一归档至 `/gs/bs/tga-RLA/qdeng/RAP/docs/audits/2026-09-09_asset_audit/`。
-> 审计脚本落在 `scripts/audit/`（需 `SD-8` 通过才能入库）。
+> 审计脚本落在 `scripts/audit/`（`SD-8` 已通过；实际入库仍受 `CP-CODE` 门控）。
 
 ### 3.0 通用规范
 
@@ -350,12 +365,12 @@ print(json.dumps(rec, ensure_ascii=False, indent=2))
 |---|---|---|
 | Lightning 训练 ckpt | 含 `state_dict`+`epoch`+`global_step` | `AgentLightningModule.load_from_checkpoint()`，或手动取 `["state_dict"]` 后 strip 前缀 |
 | 纯 `state_dict` | 顶层即 tensor 字典 | `model.load_state_dict(torch.load(...))` |
-| HF / timm backbone | 前缀含 `backbone.` / `blocks.` / `patch_embed.` | 仅作架构参考；**是否允许 load 权重取决于 `SD-0`** |
+| HF / timm backbone | 前缀含 `backbone.` / `blocks.` / `patch_embed.` | 仅作架构与格式审计；F0/F1 不允许 load 既有权重 |
 | 未知 | 其他 | 标 `UNKNOWN`，不得使用 |
 
-**⚠️ 硬约束（内联复述）**：`RAP_DINO_navsimv2.ckpt` 一类 **full-NAVSIM 训练 ckpt 禁止**作为 initializer / teacher / feature cache / pseudo-labeler / 超参 oracle。审计报告必须逐个 ckpt 打上 `ALLOWED_AS_INIT: yes/no`。
+**⚠️ Human 冻结的硬约束**：F0/F1 必须 from scratch；所有既有 checkpoint 均禁止作为 initializer、teacher、feature cache、pseudo-labeler 或超参数依据，审计报告统一标 `ALLOWED_AS_INIT: no`。只允许同一 `run_id` 在 code/config/data hash 完全一致时从该 run 自身 checkpoint 续训；P2 distillation 须另行审批。
 
-### 3.4 `A4`｜source-pixel 边界现状审计 🆕（`SD-1` 的前置）
+### 3.4 `A4`｜source-pixel 边界现状审计 🆕（P1 F0/F1 的前置）
 
 **对象**：`tools/render_nuscenes_camera_cross.py`(484 行)、`tools/canonical_bev/`
 
@@ -371,8 +386,8 @@ grep -nE "calibrated_sensor|sensor\.json|CAM_|samples/|\.jpg|intrinsic|extrinsic
 ```
 
 **判定后果**：
-- **只读 metadata/标注、不读 RGB 与标定** → F1 工程量大幅下降，`SD-1` 不受影响
-- **已读 source 标定** → 现有产物已越过 access boundary，`SD-1` 必须优先裁决，且已有结果不能声称满足 zero-source-pixel
+- **只读 metadata/标注、不读 RGB 与标定** → 可继续检查是否满足 P1 F1 的边界
+- **读取 source RGB 或标定** → 代码与产物必须标为 P2；不得输入 F0/F1，也不得声称满足 P1
 
 ### 3.5 审计交付物清单
 
@@ -397,7 +412,7 @@ grep -nE "calibrated_sensor|sensor\.json|CAM_|samples/|\.jpg|intrinsic|extrinsic
 1. **数据完整性**：实际输入根路径、split / manifest 及其 sha256；与评测侧的交集检查；缺失、损坏、不可读、重复记录与 real/raster pair 失配数量。A1/A2 的结论须在这里引用，不得只写“已检查”。
 2. **数据体量**：Target / External 分别记录 scene / log / token / 多相机同步帧 / image / pair 的实测数量（不适用的单位写 `N/A`）；同时记录每个 epoch 或整个 schedule 的有效采样/呈现次数与采样比例，避免把数据增加与训练曝光增加混为一谈。
 3. **训练 epoch / schedule**：明确 `epochs`、`max_steps`、每 epoch step 数、global/effective batch size、gradient accumulation、warmup、early stopping、checkpoint 保存频率，以及 resume 后剩余 epoch/step 的计算方式。若训练按 step 驱动，也必须给出等效 epoch；不得只写“沿用默认值”。
-4. **初始化与恢复方式**：明确选择 **from scratch**、已有 checkpoint 初始化或 checkpoint 续训三者之一。使用 checkpoint 时必须记录路径、sha256、来源 run、用途、加载方式、已完成 epoch/step，并引用 A3 的 `ALLOWED_AS_INIT: yes`；无法证明合法或出现 `UNKNOWN` 时阻断。池畑 9/2 优先建议公平的 from-scratch 比较，因此任何非 from-scratch 方案都必须写明比较目的并由 Human 单独确认。
+4. **初始化与恢复方式**：F0/F1 必须明确记录 `from scratch`。仅同一 `run_id` 在 code/config/data hash 完全一致时允许续训，并记录 checkpoint 路径、sha256、已完成 epoch/step 与剩余 schedule；既有 checkpoint 不得加载。P2 distillation 未另行获批前标 `BLOCKED`。
 5. **与原论文设定的逐项对照**：至少对照 optimizer、learning rate、scheduler、warmup、weight decay、batch size、输入分辨率、augmentation、loss 及其权重、训练更新预算和 checkpoint 策略。每项必须写 `一致 / 有意偏离 / 无法核验`、证据位置和偏离理由；`无法核验` 或未获 Human 接受的偏离均为 `BLOCKED`。本目录没有给出的原论文参数值不得由 Agent 推测或补写。
 6. **其他有效性与可复现性配置**：随机 seed、subset 生成规则、renderer / target rig 配置与 hash、预处理与缓存版本、各 loss 开关、数据混合/采样比例、precision、分布式训练方式、硬件节点、软件环境、评测器版本与指标、输出目录、`git_sha`、dirty 状态、`run_id`、失败与恢复策略。
 7. **执行契约**：列出 H0、Smoke Test、Full Experiment 与评测各自的准确工作目录、入口文件、完整解析后命令/参数、scheduler wrapper、输入 manifest、预期产物、成功退出条件与失败告警。H0 还必须列出 fixture/sample manifest、坐标系约定以及三项误差/检出率的报告位置；只有“约 50 步”而没有可执行命令不算完成。
@@ -417,7 +432,8 @@ grep -nE "calibrated_sensor|sensor\.json|CAM_|samples/|\.jpg|intrinsic|extrinsic
 | 角色 | 数据集 | 阶段 | 允许读取 | 禁止读取 |
 |---|---|---|---|---|
 | **Target（目标域）** | **NAVSIM**（固定不变） | 全程 | budget 内 real images、structured records、planning labels、**target rig 标定 `C_d`** | budget 外 target scene；`navtest` / `navhard_two_stage` / `warmup_two_stage` 等全部评测侧数据 |
-| **External / Source** | **nuScenes**（初期唯一） | 初期 | maps、agents、ego/world state、future trajectory labels | 🔴 **P1 协议下**：nuScenes RGB、nuScenes 相机内外参 |
+| **External / Source** | **nuScenes**（初期唯一） | P1 F1 | maps、agents、ego/world state、future trajectory labels | nuScenes RGB、nuScenes 相机内外参 |
+| **External / Source** | **nuScenes**（初期唯一） | P2 X 系列 | 同场景 external RGB、对应 source-rig raster、source calibration；仅用于 external alignment | 在 `SD-4/CP-3` 前读取或用于训练；任何 P2 cache/产物流入 P1 |
 | Source 扩展 | **KITTI、Waymo** | 后续 | 同上，且须先通过 schema 合格性审计 | 同上 |
 
 > 术语一律用 **External / Target**，不用 Old / New（佐藤 9/8 明确要求：数据新旧不决定其研究角色）。
@@ -456,33 +472,30 @@ Memo §五点名的问题：原表把 `Old Synthetic Raster / New Synthetic Rast
 
 | Memo 用法 | 本计划 | 是否等价 | 说明 |
 |---|---|---|---|
-| E0 | **F0** | ✅ | target-only @ b* |
+| E0 | **F0** | ✅ | target-only @ 10% legal NAVSIM training scene/log |
 | E1 | **F1** | ✅ | + external metadata → **`C_d`** raster planning |
 | E2 | **X1** | 🆕 | F0 + external real ↔ **`C_s`** raster alignment |
-| E3 | **X2** | 🆕 | F1 + 同上（= **方案 B**） |
-| — | **A0 / A1** | ⚠️ **易混** | A0/A1 切换的是 **target R2R alignment**，**不是** external alignment |
+| E3 | **X2** | 🆕 | F1 + 同上（= 会议中的 external-alignment 方案；不同于 `SD-0` 选项 B） |
+| — | **X3** | 🆕 | X2 + external-rig planning；仅为未来消融 |
 
-> **9/11 现场如果把 A1 说成"关掉 external alignment"，佐藤会立刻发现表和 spec 对不上。**
 > 新增臂统一冠以 **X**（e**X**ternal-pixel，视觉上提示"越过了 access boundary"）。
+> `F2/F3/A0/A1` 的旧定义来自已失效 proposal，不属于当前冻结协议；若未来需要曝光控制、标签置换或 target alignment on/off 消融，必须重新定义并由 Human 审批。
 
 ### 5.2 全部臂
 
-**P1（无需 `SD-1`，审计通过即可跑）**
+**P1（边界已冻结；仍须 A1–A5、H0 与 smoke 通过）**
 
 | 臂 | Phase-1 辅助流 | target R2R | 数据读取边界 | 冲刺内 |
 |---|---|:--:|---|---|
-| **F0** | 无 | on | 仅 target 预算内 + source 结构化 | ✅ 必跑 |
-| **F1** | nuScenes raster under `C_d` | on | 同上，**零 source 像素/标定** | ✅ 必跑 |
-| **F2** | target-raster replay（同 b 场景） | on | 同上 | 🔶 有余力 |
-| **F3** | source raster + 标签置换 | on | 同上 | ⬜ 会后 |
-| **A0/A1** | 无 / source raster | **off** | 同上 | ⬜ 会后 |
+| **F0** | 无 | on | 仅 10% DEV target manifest；无 external 输入 | ✅ 各 1 次 |
+| **F1** | nuScenes raster under `C_d` | on | 与 F0 相同 target manifest + external 结构化；**零 source RGB/标定** | ✅ 各 1 次 |
 
-**P2（受 `SD-1` 门控，未裁决则全部不启动）**
+**P2（access boundary 已定义；实现仍受 `SD-4/CP-3` 门控）**
 
 | 臂 | 定义 | 对应主张 | 冲刺内 |
 |---|---|---|---|
 | **X1** | F0 + external alignment | 池畑主张的隔离版 | ⬜ 仅出 spec |
-| **X2** | F1 + external alignment | **方案 B**（佐藤有条件认可） | ⬜ 仅出 spec |
+| **X2** | F1 + external alignment | 会议中的 external-alignment 方案（不同于 `SD-0` 选项 B） | ⬜ 仅出 spec |
 | **X3** | X2 + **external-rig planning loss** | 池畑 Joint Training ↔ 佐藤明确反对 | ⬜ 仅出 spec（`SD-5`） |
 
 ### 5.3 为什么 X 系列不进关键路径（工程判断，非科学判断）
@@ -500,12 +513,11 @@ X 系列需串行完成：① renderer 接受第二套 camera config ② loader 
 |---|---|---|---|---|---|
 | **SH-A** | A1–A5 资产与训练配置满足使用前提，且 `dataset_*` 与 NAVSIM 评测侧 token 交集为 0 | 无（审计） | 污染 token 数；缺失率；ckpt 判定完备性；A5 配置冻结完备性 | 交集=0、无 UNKNOWN ckpt，且 A5 全部 PASS | 任一交集 > 0 或 A5 任一 BLOCKED → **阻断全部训练** |
 | **SH-0** | source→`C_d` 渲染管线几何正确 | 无（审计） | landmark 重投影 ≤1px；world/ego round-trip ≤1e-3 m / 1e-4 rad；注入 corruption 100% 检出 | 全通过 | 任一不通过 |
-| **SH-1** | @ DEV subset，F1 **不低于** F0（无灾难性负迁移） | F0；变量 = nuScenes raster 辅助流有无 | Final EPDMS（或 `SD-6` 批准的代理） | `M(F1) ≥ M(F0) − ε_noise` | `M(F1) ≪ M(F0)` 且可复现 |
-| **SH-2** | F1 的变化不能仅由额外训练曝光解释 | F2（同曝光 target-raster replay） | 同上 | `M(F1) > M(F2)` | `M(F1) ≈ M(F2)` |
+| **SH-1** | @ DEV subset，观察加入 external structured raster 后 F1 相对 F0 的方向与幅度 | F0；变量 = nuScenes raster 辅助流有无 | PDMS + 既有分项 | `N/A`：pilot 不设 confirmatory threshold，只报告观测 | `N/A`：pilot 不据此 Refuted，结论为 `Inconclusive` |
 | **SH-3** | 训练管线数值稳定且可复现（工程假说） | 无 | 无 NaN/发散；ckpt 可恢复；同 seed 可复现 | 全满足 | 任一不满足 → **Technical Failure** |
 | **SH-R** | 存在可复用的简易 driving simulator（取状态 / 按 `C_d` 渲 raster / 执行 action / 返回默认 reward） | 无（可行性） | 四项二值判定 + 缺口清单 | 四项全通 | 任一项需自研 > 1 周 |
 
-> **SH-1 刻意写成弱假说**（"不低于"而非"显著优于"）。单 subset × 单 seed 在统计上没有能力支持 `δ_main = 1.0` 的效应判定（confirmatory 设计要求 3 subsets × 2 seeds）。把 pilot 包装成"证明 F1 更好"会被佐藤当场拆穿。
+> **SH-1 是 development observation，不是 confirmatory hypothesis test。** 单 DEV subset × 单 seed × 每臂 1 次没有预注册的数值效应阈值，因此无论方向或幅度如何，科学结论均为 `Inconclusive`。未来 confirmatory protocol 必须在查看其结果前另行冻结。
 
 ---
 
@@ -521,7 +533,7 @@ X 系列需串行完成：① renderer 接受第二套 camera config ② loader 
 
 | 时段 | 任务 | 类型 | 假说 | 位置 | 卡点 |
 |---|---|---|---|---|---|
-| 15:30–16:00 | 裁决 `SD-0/1/2/3/7/8`；确认 `EF-1`（`which qsub sbatch`） | 决策 | — | 人 | **CP-1** |
+| 15:30–16:00 | 复核已冻结 `SD-0/1/2/3/6/7/8`；确认 `EF-1`（`which qsub sbatch`）；填写并复核 `env/sprint_20260909.env` | 决策 / Environment Check | — | TSUBAME + Human | **CP-1** |
 | 16:00–17:00 | **`EF-4` 收敛**：逐路径把 `tools/`、`paired_*.yaml`、`build_alignment_small_data.py` 并入 main-based 分支 `exp/sprint-0909-base` | 工程 | — | Mac→push | **CP-2a** |
 | 16:00–18:00 | **A1–A5 资产与训练准备审计**（A1–A4 只读；A5 冻结拟运行配置，可与上一行并行） | 审计 | SH-A | TSUBAME login + Human | **CP-2b** |
 | 18:00–19:00 | **H0 几何审计** + **Smoke Test**（F0/F1 各 ~50 步，测 steps/hour） | 审计+冒烟 | SH-0, SH-3 | TSUBAME 1×node_f 短作业 | **CP-2c** |
@@ -540,23 +552,23 @@ X 系列需串行完成：① renderer 接受第二套 camera config ② loader 
 
 | 时段 | 任务 | 假说 | 卡点 |
 |---|---|---|---|
-| 08:00–09:30 | 收 F0/F1；统一评测；核对公平性（同 step / 同 target scene / 同评测器版本 / 同 `git_sha`） | SH-1 | — |
+| 08:00–09:30 | 收 F0/F1；统一评测；核对公平性（同 step / 同 target manifest+sha / 同 `manifest_seed` / 同 `training_seed` / 同评测器版本 / 同 `git_sha`） | SH-1 | — |
 | 09:30–11:00 | 出三张核心材料：① F0/F1 指标表 ② 学习曲线 ③ 3–5 个定性案例（刹车 / 横向偏移 / 交叉路口） | — | — |
-| 11:00 | 裁决 `SD-6` + 最后实验窗口决策 | — | **CP-4** |
-| 11:00–13:00 | 二选一：① 提交 F2（若 SH-1 有信号，需 SH-2 隔离曝光）② 换 seed 复跑 F0/F1（若差异极小，先确认噪声量级） | SH-2 / SH-3 | — |
-| 13:00–18:00 | **最后允许提交关键作业的时段**。优先级：修会改变结论的明确 bug > F2 > 稳定性复跑 > 定性案例 | — | — |
+| 11:00 | 检查 PDMS 评测完成度、公平性与技术有效性；决定是否仍有时间完成已冻结的同 run 恢复/评测 | — | **CP-4** |
+| 11:00–13:00 | 只允许完成 F0/F1 的同 run 恢复、统一评测、日志/registry/定性案例；不得新增 F2、换 seed 或重采样 | SH-1 / SH-3 | — |
+| 13:00–18:00 | **最后允许提交关键作业的时段**。优先级：修会使 run 无效的明确 bug > F0/F1 同 run 恢复 > PDMS 评测 > 定性案例 | — | — |
 | **18:00** | **架构冻结线**：不再新增模块 / 不改数据定义 / 不重建大规模缓存 / 不提交预计 9/11 08:00 前跑不完的作业 | — | **CP-5** |
 | 18:00–23:00 | PPT 定稿（7–9 页，见 §11） | — | — |
-| 23:00→次日 08:00 | 仅允许：已 smoke 过的复跑 / 从可靠 ckpt 续训 / 自动评测 / 归档 | — | — |
+| 23:00→次日 08:00 | 仅允许：已 smoke 过的同配置复跑 / 从同一 `run_id` 且 hash 一致的 checkpoint 续训 / 自动评测 / 归档 | — | — |
 
 ### 6.4 调度决策表（`CP-2c` 后使用）
 
 | smoke 实测的单臂完整训练耗时（1×node_f） | 决策 |
 |---|---|
-| ≤ 6 h | 跑完整 F0 + F1，预留 F2 槽位 |
+| ≤ 6 h | 跑完整 F0 + F1；不新增实验臂 |
 | 6–10 h | 只跑完整 F0 + F1 |
 | 10–16 h | 全部改**统一缩减 schedule**（同 step 数、同初始化、同采样规则），结论一律标 preliminary |
-| > 16 h | 不启动完整训练；优先复用已有 ckpt 重新评测，或跑统一 proxy schedule |
+| > 16 h | 不启动完整训练；经 A5 重新冻结后可选择统一的 from-scratch proxy schedule，否则只报告阻断与 ETA |
 | 未完成 smoke test | **禁止提交过夜作业**（无例外） |
 | 队列等待 > 4 h | 立即改用 `-ar` 预约或降级节点类型；同时把 PPT 前移 |
 
@@ -572,7 +584,7 @@ X 系列需串行完成：① renderer 接受第二套 camera config ② loader 
 
 ### 6.6 会前明确砍掉
 
-密集 scaling 曲线、≥3 seeds、多 backbone / 多分辨率 / 多 PE 设计、alignment 超参搜索、X1/X2/X3 训练、F3、A0/A1、KITTI/Waymo 接入、BEV / 3D feed-forward / 3DGS baselines、从零训 RL teacher、闭环 RL、为出图临时重构训练框架、完整 related work。
+密集 scaling 曲线、多 seed / 多 subset、多 backbone / 多分辨率 / 多 PE 设计、alignment 超参搜索、X1/X2/X3 训练、F2/F3/A0/A1、KITTI/Waymo 接入、BEV / 3D feed-forward / 3DGS baselines、从零训 RL teacher、闭环 RL、为出图临时重构训练框架、完整 related work。
 
 > 这些**不是不重要**（池畑 9/2 明确说「比较不足可以一发 Reject」），而是本窗口内做不出可信版本。它们进「下一步计划」页，不进「结果」页。
 
@@ -620,12 +632,12 @@ export SPRINT_AUDIT=$RAP_ROOT/docs/audits/2026-09-09_asset_audit
             │   ├── rig=navsim_Cd__cfg=<Cd_hash8>/     # ★ 第一层 = 渲染 rig
             │   │   ├── scene_src=navsim/
             │   │   └── scene_src=nuscenes/            # ★ F1 的关键资产
-            │   └── rig=nuscenes_Cs__cfg=<Cs_hash8>/   # 🔴 X 系列专用，SD-1 未过不得创建
+            │   └── rig=nuscenes_Cs__cfg=<Cs_hash8>/   # 🔴 P2 X 系列专用，SD-4/CP-3 未过不得创建
             ├── manifests/
-            │   ├── dev_b010_seedDEV.json  + .sha256   # ← 本冲刺唯一使用
-            │   └── confirm_b010_subset{A,B,C}.json    # ← 冲刺期间不得打开
+            │   ├── dev_b010_seed20260909.json + .sha256 # ← 本冲刺唯一使用；生成一次后冻结
+            │   └── future_confirmatory/               # ← 协议尚未定义，不得创建 manifest
             ├── pairs/
-            │   ├── target_real_raster__b010_seedDEV.jsonl
+            │   ├── target_real_raster__b010_seed20260909.jsonl
             │   └── external_real_raster__nuscenes.jsonl   # 🔴 X 系列专用
             └── pilot/
                 └── <run_id>/
@@ -638,13 +650,13 @@ export SPRINT_AUDIT=$RAP_ROOT/docs/audits/2026-09-09_asset_audit
 
 **命名铁律**：`raster/` 第一层是**渲染 rig**，第二层是**场景来源**。用目录结构强制修掉 Memo §五点名的 `Old/New Synthetic Raster` 二维混淆——表就再也画不错。
 
-**`run_id`**：`{YYYYMMDD}_{arm}_{budget}_{subset}_{seed}_{git8}`，例 `20260909_F1_b010_dev_s0_a1b2c3d4`
+**`run_id`**：`{YYYYMMDD}_{arm}_{budget}_{subset}_{seed}_{git8}`，例 `20260909_F1_b010_DEV_s20260909_a1b2c3d4`
 
 ### 7.3 实验账本（单一真相源）
 
 `docs/20260909/registry.csv`（报告只从这里取数，**禁止手工从日志复制**）：
 
-`run_id, arm, protocol(P1|P2), branch, git_sha, job_id, node_type, target_manifest+sha, source_manifest+sha, render_rig, Cd_hash, losses, init_ckpt+sha, steps, wall_clock, n_target_scenes, n_src_presentations, seed, subset, status, failure_type(none|technical|scientific), metric_final_epdms, metric_stage1, metric_stage2, openloop, is_confirmatory(false)`
+`run_id, arm, protocol(P1|P2), branch, git_sha, job_id, node_type, target_manifest+sha, source_manifest+sha, render_rig, Cd_hash, losses, init_mode(from_scratch|same_run_resume), resume_ckpt+sha, steps, wall_clock, n_target_scenes, n_src_presentations, manifest_seed, training_seed, subset, status, failure_type(none|technical|pilot_observation), metric_pdms, metric_pdms_components, openloop_diagnostic, is_confirmatory(false)`
 
 > **失败、不稳定、负迁移的 run 一律留在 registry，不得静默过滤。**
 
@@ -671,7 +683,7 @@ export SPRINT_AUDIT=$RAP_ROOT/docs/audits/2026-09-09_asset_audit
 
 | 概念 | 回答的问题 | 本项目的用法 |
 |---|---|---|
-| **Branch** | *跑的是哪份代码？* | **每个会改动代码的实验族一个分支**。F0/F1/F2 因必须共享完全相同的代码（公平性控制），**共用一个分支、一个 commit** |
+| **Branch** | *跑的是哪份代码？* | **每个会改动代码的实验族一个分支**。F0/F1 必须共享完全相同的代码（公平性控制），**共用一个分支、一个 commit** |
 | **Worktree** | *这份代码物化在磁盘的哪里？* | **每个"同时在跑且代码不同"的实验族一个 worktree**，且只在 **TSUBAME** 上开 |
 
 **关键判断：worktree 的价值在云端，不在 MacBook。**
@@ -684,11 +696,11 @@ export SPRINT_AUDIT=$RAP_ROOT/docs/audits/2026-09-09_asset_audit
 ```
 TSUBAME:
 /gs/bs/tga-RLA/qdeng/RAP            [main]                  ← 只读参考，不在这里提交作业
-/gs/bs/tga-RLA/qdeng/RAP-p1         [exp/sprint-0909-base]  ← F0/F1/F2 全部从这里提交
-/gs/bs/tga-RLA/qdeng/RAP-p2         [exp/sprint-0909-x]     ← X 系列开发（SD-1 通过后才动 allowlist）
+/gs/bs/tga-RLA/qdeng/RAP-p1         [exp/sprint-0909-base]  ← F0/F1 全部从这里提交
+/gs/bs/tga-RLA/qdeng/RAP-p2         [exp/sprint-0909-x]     ← X 系列开发（SD-4/CP-3 通过后才动 allowlist）
 ```
 
-只需 **2 个 worktree**。F0/F1/F2 共用 `RAP-p1` 是**正确的**（它们必须同 commit）；拆成 3 个反而增加"代码不一致"的风险。
+只需 **2 个 worktree**。F0/F1 共用 `RAP-p1` 是**正确的**（它们必须同 commit）；拆开反而增加"代码不一致"的风险。
 
 ### 8.2 操作步骤
 
@@ -715,7 +727,7 @@ git switch -c exp/sprint-0909-base
 
 > ⚠️ **不要 `git merge exp/rap-alignment-regression`**——那是 89 files / +114k 行，会把大量与本冲刺无关的实验性改动一并带入，破坏"`main` 干净"的前提。**逐路径 checkout 是唯一安全做法。**
 
-**Step 0.5｜把 `scripts/` 纳入版本控制（`SD-8` 通过后）**
+**Step 0.5｜把指定 `scripts/` 子目录纳入版本控制（`SD-8` 已通过；执行仍受 `CP-CODE` 门控）**
 
 ```bash
 # .gitignore 改为：
@@ -843,12 +855,12 @@ git worktree prune                    # 手工 rm 掉目录后清理残留记录
 
 | ID | 时间 | 触发 | 人类必须检查什么 | 未通过 |
 |---|---|---|---|---|
-| **CP-1** | 15:30–16:00 | 任何代码/作业之前 | 裁决 `SD-0/1/2/3/7/8`；确认 `EF-1`（`which qsub sbatch`）；填 `env/sprint_20260909.env` | **全部停机** |
+| **CP-1** | 15:30–16:00 | 任何代码/作业之前 | 复核已冻结 `SD-0/1/2/3/6/7/8`；确认 `EF-1`（`which qsub sbatch`）；填并复核 `env/sprint_20260909.env` | 任一未完成 → **全部停机** |
 | **CP-2a** | 17:00 | `main` 补齐后 | 逐条 review `git status`，确认只带入必需资产，未混入 alignment regression 的实验性改动 | 回退，重做逐路径 checkout |
 | **CP-2b** | 18:00 | A1–A5 审计完成、拟运行配置已冻结 | ⭐ **逐条读 `A1_split_membership.md`**：`dataset_*` 与 `navtest`/`navhard_two_stage` 交集是否为 0；A1/A2 的完整性与实测体量；`A3` 每个 ckpt 的 `ALLOWED_AS_INIT`；`A4` 的 source-pixel 判定；`A5_training_readiness.md` 中数据、epoch/schedule、from-scratch/ckpt、原论文超参数对照及复现配置是否全部有证据且 PASS | **交集 > 0、任一 UNKNOWN/BLOCKED、配置或 manifest 未冻结 → 禁止 Smoke Test 与任何训练**（最硬的门） |
 | **CP-2c** | 19:00 | H0 几何审计 + smoke 完成 | landmark 重投影误差、round-trip 误差、corruption 检出率；肉眼看若干 raster 叠图；smoke 的 loss 接线与实测吞吐 | **H0 未过 → 禁止启动训练** |
 | **CP-3** | 20:30–21:30 | 写 X 系列代码之前 | 裁决 `SD-4` 五项；确认 P2 与 P1 的隔离方式 | X 系列只出文档，不进代码库 |
-| **CP-4** | 9/10 11:00 | 第一批结果出来 | ① **先只看 Measurement，不做解释** ② 核对公平性（同 step / 同 target scene / 同评测器版本 / 同 `git_sha`）③ 裁决 `SD-6` ④ 决定最后窗口 | 公平性不过 → 标 `invalid`，不上 PPT |
+| **CP-4** | 9/10 11:00 | 第一批结果出来 | ① **先只看 Measurement，不做解释** ② 核对公平性（同 step / 同 target manifest+sha / 同 `manifest_seed` / 同 `training_seed` / 同评测器版本 / 同 `git_sha`）③ 核对 PDMS 与分项是否完整 ④ 决定最后窗口 | 公平性不过 → 标 `invalid`，不上 PPT |
 | **CP-5** | 9/10 18:00 | 架构冻结线 | 确认无新模块、无数据定义变更、无跑不完的作业在排队 | 强制冻结 |
 | **CP-6** | 9/11 09:30 | 结果硬冻结 | 逐条检查结论措辞与证据强度是否匹配；确认所有数字标 `preliminary / single subset / single seed` | 09:30 后不因新数字重写主叙事，迟到结果进 appendix |
 
@@ -857,8 +869,8 @@ git worktree prune                    # 手工 rm 掉目录后清理残留记录
 | 现象 | 分类 | 处置 |
 |---|---|---|
 | OOM、shape mismatch、dataloader 崩、NaN、ckpt 损坏、作业被队列杀 | **Technical** | 修复后重跑；**不产生任何科学结论** |
-| 训练正常收敛，但 `M(F1) < M(F0)` | **Scientific** | 记录为 negative transfer 观测，进 registry 与 PPT，**不得因结果不理想私改 protocol** |
-| 训练正常，差异 < 噪声 | **Scientific** | 结论 = `Inconclusive`，**不得**改写成"趋势向好" |
+| 训练正常收敛，但 `M(F1) < M(F0)` | **Pilot observation** | 记录方向与差值，进 registry 与 PPT；结论仍为 `Inconclusive`，不得私改 protocol |
+| 训练正常，F1 与 F0 存在任意幅度差异 | **Pilot observation** | 原样报告 PDMS 与分项；没有 confirmatory threshold，不得写成 Supported/Refuted |
 | A1 污染检出 / H0 未过 | **既非** | 阻断门，整个 build 作废 |
 
 > **铁律**：实验开始后不得因初期结果不理想而私改 Protocol。任何 protocol 变更必须开新 `run_id`、在 registry 记录原因，并声明该 run 与前序 run **不可配对比较**。
@@ -873,23 +885,22 @@ git worktree prune                    # 手工 rm 掉目录后清理残留记录
 
 ### 10.2 结论类型
 
-仅三种：**`Supported` / `Refuted` / `Inconclusive`**。
+科学结论词汇仅三种：**`Supported` / `Refuted` / `Inconclusive`**。本次全部为 development pilot（单 DEV subset × 单 seed × 每臂 1 次），且没有数值型 confirmatory threshold，因此本次科学结论**只能是 `Inconclusive`**。
 
-本次全部为 pilot（单 subset × 单 seed），**默认结论应为 `Inconclusive`**，除非出现灾难性负迁移（可下 `Refuted`(SH-1)）或审计门未过（可下 `Refuted`(SH-A/SH-0)）。
+A1–A5、H0 或技术检查未通过时，写 `BLOCKED` / `INVALID` / `Technical Failure`，不得把工程门控失败写成科学上的 `Refuted`。
 
 ### 10.3 结果解释对照表
 
 | 观测 | **允许**的表述 | **禁止**的表述 |
 |---|---|---|
-| F1 > F0 且 F1 > F2 | external structured content 在此 pilot 条件下有超出 replay 与辅助分支的正向信号 | "证明了 external knowledge 有效" |
-| F1 > F0 但 F1 ≈ F2 | 增加的训练分支有帮助，但 external content 未被隔离 | "external 场景多样性带来增益" |
-| F1 ≈ F0 | 在该预算与配方下未观测到效应，或功效不足 | "略有提升" |
-| F1 < F0 | 在该配置下观测到负迁移 | 静默丢弃该 run |
-| 只有 open-loop 指标 | 仅 diagnostic，`Inconclusive` | 任何 Supported/Refuted |
+| F1 > F0 | 在该 DEV manifest 与 seed 下观测到正向差值；结论为 `Inconclusive` | "证明了 external knowledge 有效"、`Supported` |
+| F1 ≈ F0 | 在该 DEV manifest 与 seed 下差值很小；结论为 `Inconclusive` | "没有效应"或"等价" |
+| F1 < F0 | 在该 DEV manifest 与 seed 下观测到负向差值；结论为 `Inconclusive` | `Refuted`、静默丢弃该 run |
+| 只有 open-loop 指标 | 仅 diagnostic，不能替代 PDMS；结论为 `Inconclusive` | 任何 Supported/Refuted 或 PDMS 主张 |
 
 ### 10.4 措辞审计（`CP-6` 逐条过）
 
-- 每个数字必须带：`b*`、subset ID、seed、step 数、`git_sha`、是否 pilot
+- 每个数字必须带：10% scene/log budget、DEV manifest+sha、`manifest_seed=20260909`、`training_seed=20260909`、step 数、`git_sha`、是否 pilot
 - 每个主张必须带范围限定：**on the evaluated NAVSIM target rig**
 - 出现"证明 / 显著 / 最强 / 有效"而无置信区间支撑 → 一律改写
 - **「all-data 最强」在 9/11 之前不得作为结论出现**（佐藤 9/8 明确要求；Memo 已确认状态为「值得开展比较实验；不预设 B 优于 A」）
@@ -902,13 +913,13 @@ git worktree prune                    # 手工 rm 掉目录后清理残留记录
 
 | # | 页 | 内容 |
 |---|---|---|
-| 1 | 我希望老师判断什么 | 直接列 `SD-1` / `SD-5` / 3D baseline 排期 / RL 投入比例 |
-| 2 | 问题定义与协议 | target 是谁、何时知道 calibration、zero/few-shot 数什么、`b*` 口径（`SD-3` 结果）+ 绝对计数 |
+| 1 | 我希望老师判断什么 | 直接列 `SD-4` / `SD-5` / 3D baseline 排期 / RL 投入比例；已冻结 P1 access boundary 作为前提 |
+| 2 | 问题定义与协议 | target 是谁、何时知道 calibration、zero/few-shot 数什么、10% scene/log budget + A1/A5 绝对计数 |
 | 3 | 三维数据流表 | **场景来源 × 渲染 rig × 接受的 loss**（修正 Old/New Synthetic 混淆） |
 | 4 | 资产、训练准备审计与 H0 通过证明 | A1 污染检查、A2 完整度、A3 ckpt 合规、A4 边界现状、A5 冻结配置；几何误差与 corruption 检出 |
-| 5 | 最小对照 pilot 结果 | F0/F1(/F2)；全部标 preliminary；含公平性核对表 |
-| 6 | 我能下 / 不能下的结论 | 严格用 Supported / Refuted / Inconclusive |
-| 7 | **X 系列（方案 B）设计 + 协议冲突** | `SD-1` 全文；池畑主张 ↔ source-pixel 边界的冲突；请裁决 |
+| 5 | 最小对照 pilot 结果 | F0/F1；全部标 preliminary / single DEV subset / seeds=20260909；含公平性核对表 |
+| 6 | 我能下 / 不能下的结论 | 科学结论统一 `Inconclusive`；并列原始差值、方向、限制与下一步 confirmatory 缺口 |
+| 7 | **P2 X 系列设计 + P1 隔离** | 展示已冻结 access boundary、P2 不得流入 P1，以及 `SD-4` 待裁决项 |
 | 8 | **external-rig planning（`SD-5`）** | 并列呈现池畑 Joint Training 与佐藤反对意见，请两位当面裁决 |
 | 9 | RL 可行性 + 下一步 | SH-R 四项判定 + 缺口；3D/BEV baseline 与 Waymo/KITTI 扩展排期 |
 
@@ -923,11 +934,11 @@ git worktree prune                    # 手工 rm 掉目录后清理残留记录
 | 明确 Problem Setting，拆细 rig 差异（count / extrinsics / FOV / focal / projection / distortion） | ✅ PPT p.2–3 | 受控 rig 变体实验 |
 | 先做 baseline，明确"要打倒的敌人" | ✅ F0 | 全量 target 参考（REF） |
 | 必须比较 BEV / 3D feed-forward / 3DGS / VGGT+Fisheye3R 式 adaptation，training data 完全相同 | ❌ 本窗口内不可能 | **会后第一优先**；先做 3D feed-forward 的 zero-shot 可跑性检查（成本最低、收益最高） |
-| 不要"先有 RAP 再找理由" | ✅ 用 F3 标签置换 + F2 曝光控制来证伪 | — |
-| random sampling × 多 seed，不要精挑 few-shot 样本 | 🔶 当前用分层随机 | 与池畑确认分层 vs 纯随机的取舍 |
+| 不要"先有 RAP 再找理由" | 🔶 本冲刺只做 F0/F1 development observation，不声称已隔离全部因果 | 未来重新定义曝光控制、标签置换等对照并由 Human 预注册 |
+| random sampling × 多 seed，不要精挑 few-shot 样本 | 🔶 当前为随机 10% DEV subset，`manifest_seed=20260909`，仅单 seed pilot | 未来 confirmatory protocol 预先定义多个 subset/seed 与重复次数 |
 | 最终不能只有 NAVSIM 一个 target | ❌ | 第二 target rig |
 | 多个 external dataset | ❌ | **nuScenes → Waymo → KITTI**（仓库已有 `run_waymo_*`，Waymo 工程起点低于 KITTI） |
 
 ---
 
-*本文档以 `docs/20260909/` 现有文件与本仓库代码为唯一基准生成。所有 `[Scientific Decision Required]` 与 `[EF-*]` 均未被自动补全。云端路径下的一切断言均标记为待审计，未经 §3 审计通过不得引用。*
+*本文档以 `docs/20260909/` 现有文件与本仓库代码为唯一基准生成。Human 已于 2026-09-09 冻结 `SD-0/1/2/3/6/7/8`；`SD-4/5` 与全部 `[EF-*]` 仍须按各自门控处理。云端路径下的一切断言均标记为待审计，未经 §3 审计通过不得引用。*
