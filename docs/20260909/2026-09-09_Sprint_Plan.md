@@ -1,9 +1,10 @@
-# 2026-09-09 → 09-11｜48h 实验冲刺计划（Sprint Plan）· **v2.2**
+# 2026-09-09 → 09-11｜48h 实验冲刺计划（Sprint Plan）· **v2.3**
 
 > v2 以 **`docs/20260909/` 下的现有文件 + RAP 开源代码库（本仓库）** 为唯一基准重写，补齐 TSUBAME4.0 执行架构、真实路径规范、数据集策略与 Git 并行方案。
 > 所有涉及云端的断言均已降级为 **待审计项**，并附可执行的审计命令。
 > v2.1 增补逐次 `CP-CODE` Human 检查、原子 commit / 小步迭代规则，以及进入 Smoke Test 前的 `A5` 训练配置与数据冻结门。
 > v2.2 记录 Human 对 `SD-0` 选项 B 及 `SD-7/SD-8` 的裁决，并冻结当前 development pilot 的预算、实验臂、seed、指标、access boundary、checkpoint 规则、Simulator/RL 投入上限与脚本入库边界。
+> v2.3 收敛 **T0.1（`EF-4` 逐路径并入，U1–U4 已 commit）** 与 **O1 渲染管线侦察** 的结果：修订 `EF-4` 定性、新增 `EF-5/EF-6`、新增 `SD-9`～`SD-13`、把 `SD-1` 细化为训练/可视化双路径判据、更正 `C_d` 为 **4 相机**、记入 `A1` 污染门的本地预跑结果。
 
 ---
 
@@ -123,19 +124,61 @@ scripts/*
 
 `git diff --stat main exp/rap-alignment-regression` → **89 files changed, +114,014**。`main` 上**不存在**：
 
-| 缺失项 | 在 `exp/rap-alignment-regression` 上 | 冲刺是否需要 |
-|---|---|---|
-| `tools/render_nuscenes_camera_cross.py` | 484 行 | ⭐ **F1 臂的核心**（nuScenes 跨相机渲染） |
-| `tools/render_navsim_scene.py` | 364 行 | ⭐ target-rig raster 渲染 |
-| `tools/render_navsim_augmentations.py` | 439 行 | 🔶 |
-| `tools/canonical_bev/` | — | 🔶 |
-| `train_test_split/paired_trainval.yaml`、`scene_filter/paired_54log.yaml` | 2 个 | ⭐ paired 数据划分 |
-| `navsim/planning/script/build_alignment_small_data.py` | 1 个 | ⭐ |
-| `docs/20260909/` 本身 | 4 个文件 | ⭐ |
+**✅ T0.1 已于 2026-09-09 收敛。** 逐路径并入结果与**经核实后的定性**如下（原 v2.2 表中的"冲刺是否需要"一列有两处误判，已更正）：
+
+| 路径 | 行数 | **经核实的定性** | 处置 | commit |
+|---|---|---|---|---|
+| `tools/render_nuscenes_camera_cross.py` | 484 | 🔶 **P1-safe 可视化 / `SH-0` H0 几何诊断工具**<br>（原写"⭐ F1 臂的核心"，**误判**：它是 `--sample-token` 单样本、`--version v1.0-mini`、单相机 CAM_FRONT 的 A/B 对比工具，输出 preview/overlay jpg） | ✅ 已并入 | `2a8e32b3` |
+| `tools/render_navsim_scene.py` | 364 | 🔶 **P1-safe 可视化 / H0 工具**；产 `*_camera_params.npz` 供上一行消费。**仅归档、当前不可运行**（上游 fixture 生产者 `extract_one_scene.py` 按 Human 裁决不带入） | ✅ 已并入 | `77ecdc08` |
+| `train_test_split/paired_trainval.yaml`<br>`scene_filter/paired_54log.yaml` | 3 + 63 | 🔶 **仅归档**。`SD-13` 裁决：本冲刺**不使用**（54 logs 为手工固定列表，与 `SD-2` 随机抽样协议及池畑 9/2 §49–50 冲突） | ✅ 已并入 | `6ee04292` |
+| `navsim/planning/script/build_alignment_small_data.py` | 731 | ⭐ **确认保留**。四个单元中唯一与训练栈真实集成者（`RAPConfig` / `RAPFeatureBuilder` / `SensorConfig`）；`--train-count` / `--dry-run` 直接服务小规模试算 | ✅ 已并入 | `939fc06d` |
+| `tools/render_navsim_augmentations.py` | 439 | ⬜ **不带入**（§8.2 第 3 条"仅在已确认需要时"；F0/F1 用不到） | — | — |
+| `tools/canonical_bev/` | — | ⬜ 未跟踪状态保留，本冲刺不处理 | — | — |
+| `docs/20260909/` | 4 个文件 | ⭐ | ✅ 已于 `6bca83e5` 提交 | `6bca83e5` |
+
+> **`CP-CODE` 标号勘误**：commit `77ecdc08` 的 body 写作 `CP-CODE: T0.2-U2`，应为 **`T0.1-U2`**（U1–U4 均属 T0.1；T0.2 是 §8.2 Step 0.5）。按 Human 指示不 amend 已 `PASS` 的 commit，在此登记映射。
 
 **`navsim/agents/rap_dino/` 在 `main` 上存在（22 个文件），这点没问题。**
 
-**结论**：「基础代码库基于 `main` 且保持干净」这条约束**当前不可直接满足**——纯 `main` 跑不了 F1。必须先把上述资产**逐路径**并入一个 main-based 分支（见 §8.2 Step 0），否则整个冲刺没有起跑线。**这是今天的第一件事。**
+**结论（已更新）**：起跑线已建立，但**纯粹并入资产并不足以让 F1 跑起来** —— 见 `EF-5`。
+
+### `[EF-5]｜F1 批量渲染器未组装；nuScenes 适配层已就绪但有两个语义缺口` 🟠 阻断 F1
+
+> 来源：2026-09-09 O1 侦察（Human 裁决 O1，30 分钟只读时间盒）。
+
+**现状**：全库**唯一**的 nuScenes 渲染器是 `tools/render_nuscenes_camera_cross.py`，而它是**单样本诊断工具**。`process_data/` 无 nuScenes 入口；`navsim/` 中唯一的 nuScenes 出现是 `bevformer/encoder.py:28` 的默认参数 `dataset_type='nuscenes'`（上游 BEVFormer 命名，非数据管线）。
+**即：F1 所需的「nuScenes 场景 → `C_d` raster」批量生产线不存在。**
+
+**好消息 —— 最难的部分已经写好**：nuScenes → `ScenarioRenderer` 所需 scenario schema 的转换（坐标变换 / `map_features` / `anns`）已在 U1 的 `main()` 中实现（L296–345）。`ScenarioRenderer.observe()` 需要的四个键中，三个已有实现。
+
+**组装缺口（工程，估约半天）**：
+
+| # | 项目 | 说明 |
+|---|---|---|
+| 1 | scenario 构建抽成函数 | 当前内联于 `main()` L296–345 |
+| 2 | 🔴 `sample_token → [annotation]` 索引 | 当前 L299–302 为**每样本线性扫全表**，O(N_sample × N_annotation)；v1.0-trainval 下全量跑不动 |
+| 3 | 🔴 map JSON 按 `log['location']` 缓存 | 当前 L317–318 **每样本重新 `json.loads` 整个地图文件**（nuScenes 仅 4 个 location） |
+| 4 | 相机集合 | 改为 `C_d` 的 **4 相机**（见 `SD-11` 与 §7.2） |
+| 5 | 落盘路径 | `outputs/sprint_20260909/raster/rig=navsim_Cd__cfg=<Cd_hash8>/scene_src=nuscenes/` |
+
+**语义缺口（须 `SD-*` 裁决，不得由 AI 补全）**：`SD-9`（交通灯通道）、`SD-10`（未来轨迹标签）、`SD-11`（虚拟相机位移约定）—— 均已裁决，见 §2。
+
+**附**：`tools/render_navsim_scene.py` 的上游 fixture 生产者 `extract_one_scene.py`（153 行，仓库根，硬编码本地路径 `/Users/joy/pythonProject/RAP/navsim_one_scene`）按 Human 裁决**不带入**。后果：该工具仅归档不可运行，且 §3.6 `A5` 第 7 项要求的「H0 fixture / sample manifest」**尚无指定来源**，须在 `CP-2b` 前补一个决议。
+
+### `[EF-6]｜外部二进制依赖 GDAL `ogr2ogr` 在 TSUBAME 上未查证` 🟠
+
+`tools/render_navsim_scene.py:84,104` 通过 `subprocess.run([... "ogr2ogr" ...], check=True)` 读取 nuPlan `map.gpkg`，缺失即 `CalledProcessError`。
+
+- 本地 Mac：✅ 可用（GDAL 3.11.3 "Eganville"）
+- **TSUBAME：未知**
+
+**查证命令（并入 `CP-1`）**：
+
+```bash
+which ogr2ogr && ogr2ogr --version
+```
+
+**缓解**：`--map-gpkg` 为可选参数（default `None`）；但不带地图则 raster **没有 HD-map 几何、也没有交通灯**，H0 的 raster 叠图检查将失去大部分可检内容。
 
 ---
 
@@ -170,7 +213,23 @@ v1 的 `SD-1/2/3`、`F0/F1/F2/F3/A0/A1` 命名、`b*=10%`、`δ_main=1.0`、`Fin
 
 **P2（X1/X2/X3）**：允许读取 external RGB 与对应 source calibration，但仅用于同场景、source-rig `C_s` 下的 external real/raster alignment。P2 必须使用独立协议、代码路径、产物目录和 access audit；不得把 P2 产物或 cache 输入 P1。
 
-`A4` 仍是硬门：若现有工具或产物读取过 source RGB/calibration，必须标为 P2；不能用于 F0/F1，也不能声称满足 P1。X 系列在 `SD-4/CP-3` 前只写规格，不写代码、不运行。
+**约束绑定训练路径，不绑定可视化路径（Human 裁决 2026-09-09）**：上文「读取/解码计数必须全部为 0」**仅严格适用于训练阶段**。仅用于可视化 / 诊断的代码**允许**读取 source 信息。为使 `A4` 仍然可证伪，该裁决落成三条机械判据：
+
+| # | 规则 | 判定方法 |
+|---|---|---|
+| **R1** | `A4` 的计数器**拆成两个**：`train_path_source_reads`（**必须 = 0**，硬门）与 `viz_path_source_reads`（允许 > 0，但**必须逐条列举**行号与内容） | `A4` 报告新增两栏 |
+| **R2** | 「训练路径」的机械定义 = **从训练/评测入口可达**（被 `navsim/` 或 `process_data/` 的训练/评测代码 import 或调用）**或**出现在 loader allowlist 中。反之，仅以独立 CLI 手动调用、产物只落 `outputs/` 者判为可视化路径 | `grep -rn <模块名>` 可达性检查，结果入 `A4` |
+| **R3** | **单向阀**：可视化产物路径**不得出现在**任何 `manifests/*.json`、`pairs/*.jsonl` 或训练 config 中。可视化可以读 source，但其输出**不得回流**为训练输入 | `CP-2b` 时对 manifest / pair 文件做一次路径黑名单核对 |
+
+**已按此判定的既有工具**：
+
+| 工具 | `train_path_source_reads` | `viz_path_source_reads` | 判定 |
+|---|---|---|---|
+| `tools/render_nuscenes_camera_cross.py` | **0**（全库零 import/调用） | 3（L263 `calibrated_sensor`；L284–294 native 内外参；L368–369 `cv2.imread` source RGB） | ✅ 可视化路径，可入 P1 分支 |
+| `tools/render_navsim_scene.py` | **0** | **0**（仅 NAVSIM target 侧） | ✅ |
+| `navsim/planning/script/build_alignment_small_data.py` | **0** | **0**（对 `nuscenes\|calibrated_sensor\|source_rig\|external` 零命中） | ✅ |
+
+`A4` 仍是硬门：若现有工具或产物在**训练路径**上读取过 source RGB/calibration，必须标为 P2；不能用于 F0/F1，也不能声称满足 P1。X 系列在 `SD-4/CP-3` 前只写规格，不写代码、不运行。
 
 ### `SD-2｜9/9–9/11 的 run 如何归类` ✅ 已裁决
 
@@ -192,6 +251,8 @@ v1 的 `SD-1/2/3`、`F0/F1/F2/F3/A0/A1` 命名、`b*=10%`、`δ_main=1.0`、`Fin
 - A1/A5 必须记录合法训练集总 scene/log 数、抽中数量、对应 frame/image/pair 数与 manifest sha256。
 - frame、image、pair 和等效时长只作描述性统计，不作为抽样单位。
 - 「1000h vs 10min ≈ 6000:1」只可作为会议中出现的假设性 motivation，不得作为实际预算或实测比例。
+
+> ⚠️ **2026-09-09 发现歧义**：「NAVSIM 合法训练集」指哪个池，仓库内存在三个互不相同的候选，直接改变 10% 的抽样基数。**转 `SD-12` 裁决前，本条的绝对数不可填写。**
 
 ### `SD-4｜X 系列 alignment 规格未定`
 
@@ -227,6 +288,76 @@ v1 的 `SD-1/2/3`、`F0/F1/F2/F3/A0/A1` 命名、`b*=10%`、`δ_main=1.0`、`Fin
 ### `SD-8｜是否把 `scripts/` 纳入版本控制` ✅ Human 已裁决
 
 **Human 决议（2026-09-09）**：允许将 `scripts/jobs/` 与 `scripts/audit/` 纳入版本控制；`scripts/` 下其他内容继续忽略。具体 `.gitignore` 修改与目录纳入按 `EF-2`、§8.0 和 `CP-CODE` 执行，不得把未检查的其他脚本一并加入。
+
+> ⚠️ 执行前须先处置一处**来源不明**的 `.gitignore` 改动（2026-09-09 发现，新增 `.agent_jobs/` 并补末尾换行，非 T0.1 各单元所为）。
+
+### `SD-9｜F1 external 流的交通灯通道恒空` ✅ Human 已裁决：(a) + (d)
+
+**事实**：nuScenes **不提供灯态**（`render_nuscenes_camera_cross.py` L339–341 明确拒绝编造），因此 external 流的 `scenario['traffic_lights']` 恒为 `[]`；而 `renderer.py:716–732` 会为 NAVSIM target 流绘制红/绿交通灯。这不是臂间差异，而是 **F1 内部两条数据流之间的语义不一致**：同一视觉证据（无红/绿 cuboid）在 target 流表示"确实没有信号灯"，在 external 流表示"未知"。
+
+**风险机制**：external 流数据量远大于 target 流，模型可能学会**整体忽略 TL 通道**，反过来损害 target 在信号化交叉口的表现。这正是佐藤 9/8 所问「多出来的数据是否破坏/污染 target 学习目标」的**第一个具体、可命名实例**。
+
+**Human 决议**：
+- **(a) 接受并登记**。理由：① PDMS **不含交通灯分项**（`pdm_score.py:122–128` + `pdm_enums.py:156–169`：乘性 `NO_COLLISION × DRIVABLE_AREA` × 加权 `PROGRESS/TTC/COMFORTABLE/DRIVING_DIRECTION`，其中 `driving_direction_weight = 0.0`），直接影响为 0；② `SD-6` 已冻结「单 subset × 单 seed × 无 confirmatory threshold → 结论只能 `Inconclusive`」，该效应在本冲刺统计上不可分辨；③ 任何"修复"都会往 F0/F1 之间塞进第二个变量，破坏「只差一个变量」的对照纯度。
+- **(d) TL valid/invalid mask 写进 `SD-4` X 系列 spec 作为长期答案**（给 raster 增加"本帧 TL 通道不可信"标记）。属架构面改动，本冲刺不实现。
+- 被否决的方案：(b) F0 也关闭 TL（要改 baseline，引入第二变量且偏离 RAP 原生）、(c) 画灯位不画灯态（需第三种颜色语义，制造新的不一致）、(e) 过滤 nuScenes 信号化交叉口场景（使 external 流系统性偏向简单场景，对 planning 监督流更糟）。
+
+**配套动作**：① `A5` 公平性表登记为已知偏差；② PPT p.6「我不能下的结论」显式声明；③ 作为会议议题与 `SD-5` 并列。
+**可证伪的后续实验（不进本冲刺）**：对 target 测试集做**分层评估** —— 信号化交叉口 vs 其余场景分开报 PDMS。若 F1−F0 的差值在信号化场景上系统性更差，即直接证实该污染路径。
+
+### `SD-10｜F1 的未来轨迹标签从哪来` ✅ Human 已裁决：(a) 自建
+
+`render_nuscenes_camera_cross.py` 加载了 `ego_pose` 表（L265）但只取当前帧（L285–288）用于坐标变换，**未产出未来轨迹**；而 §4.2 的 F1 行要求 target-rig planning loss，必须有 GT 轨迹。
+
+**决议 (a)**：沿 nuScenes scene 的 sample 序列**前推 `ego_pose` 自建**。
+
+**时域对齐参数（出处 = 已跟踪文件 `scene_filter/paired_54log.yaml`）**：
+
+```yaml
+num_history_frames: 4
+num_future_frames: 10
+frame_interval: 1
+```
+
+nuScenes 自建轨迹须对齐到同样的 **4 历史帧 + 10 未来帧 + interval 1**；实际采样率差异须在 `A5` 中逐项核对并记录。
+
+### `SD-11｜批量渲染是否预补偿虚拟相机位移` ✅ Human 已裁决：不预补偿
+
+`ScenarioRenderer.observe()` 无条件对相机施加虚拟位移 `cam_t[0] -= 2; cam_t[2] += 0.8`（`renderer.py` L711–713）。
+
+| 场景 | 约定 | 理由 |
+|---|---|---|
+| **H0 诊断工具**（`render_nuscenes_camera_cross.py` L228–232、`render_navsim_scene.py` L274–277） | **预补偿** | 使 effective 外参严格等于所声明的标定，A/B 对比才精确 |
+| **F1 批量渲染器** | **不预补偿** | 与 F0 的 RAP 原生行为一致；否则 F1 的 raster 相对 F0 带系统性几何偏移，两臂不可比 |
+
+> 这条护栏必须显式写死：**不得照抄 H0 工具的预补偿逻辑去写批量渲染器。**
+
+### `SD-12｜「NAVSIM 合法训练集」指哪个池` 🔶 **未裁决**
+
+仓库内存在**三个互不相同**的候选池，直接改变 `SD-3` 中 10% 的抽样基数：
+
+| 选项 | 来源 | 规模 | ×10% | 备注 |
+|---|---|---|---|---|
+| **B1** | `scene_filter/navtrain.yaml`（`data_split: trainval`） | 1192 logs | ≈119 | 官方训练 split，最保守，**最小** |
+| **B2** | `trainval` 全池 / `navall.yaml` | 14539 logs | ≈1454 | 数据最多；须在 `A1` 明确边界并证明与 `navtest` **token 级**无重叠 |
+| **B3** | `process_data/default_train_val_test_log_split.yaml:train_logs` | 13180 logs | ≈1318 | **`build_alignment_small_data.py` 实际消费的那个** |
+
+**Human 倾向（2026-09-09，尚未成为裁决）**：前期实验优先小规模、快速验证。
+
+**决策材料（三点必须一并考虑）**：
+1. **就"小规模"而言 B1 本身即最小**，方向上与该倾向一致。但若选 B1，需要一个 navtrain 版的 `--split-config`（`train_logs/val_logs/test_logs` 格式），当前**不存在**，需另行产出。
+2. **「用哪个池」与「抽多大比例」是两个正交旋钮。** 若 119 logs 仍嫌慢，该动的是 `SD-3` 的 **10% 比例**，不是换池 —— 而按 §2 那需要新开 Human 决议 + 新 `run_id` + 重做 `A5`。
+3. **Smoke Test 可用更小的集合**（如 `navmini`，62 logs，`data_split: mini`）。Smoke 仅约 50 步、不产生科学结论，**不受 `SD-2`/`SD-3` 约束，无须改动任何冻结项**。
+
+**阻断范围**：`SD-3` 的绝对数、`A1`/`A5` 的「合法训练集总数」、DEV manifest 的抽样基数。**裁决前不得生成 manifest。**
+
+### `SD-13｜`paired_54log` 在本冲刺中的角色` ✅ Human 已裁决：不使用
+
+`paired_54log.yaml` 是**手工固定的 54 个 log**，与 `SD-2` 冻结的「随机 10% + `manifest_seed=20260909` + 生成一次后冻结」协议冲突，也与池畑 9/2 §49–50 的「random sampling、不要人工精挑，否则 robustness 存疑」相冲突。
+
+**决议**：F0/F1 **一律使用 `SD-2` 的随机 10% DEV manifest**；`paired_trainval.yaml` / `paired_54log.yaml` 仅作**归档**入库（commit `6ee04292`），不进入任何实验配置。
+
+> 附：`build_alignment_small_data.py` **不依赖**这两个文件（它走自己的 `--split-config`），因此本裁决不影响该脚本可用性。
 
 ---
 
@@ -294,6 +425,22 @@ done
 ```
 
 > ⚠️ **这是本次审计中唯一可能直接否决整个冲刺的门**：若 `dataset_*` 混有 `navtest` token，任何基于它们的结果都不可用。
+
+**本地预跑结果（2026-09-09，T0.1-U3 期间）**：官方 split 配置全部在本分支上，因此已在本地跑过一次**配置层面**的交集检查：
+
+| 对照 | 规模 | ∩ `paired_54log`(54) | 判定 |
+|---|---|---|---|
+| `navtest.yaml`（`data_split: test`） | 136 logs | **0** | ✅ clean |
+| `navtrain.yaml`（`data_split: trainval`） | 1192 logs | **0** | ⚠️ 触发 `SD-12` |
+| `navmini.yaml`（`data_split: mini`） | 62 logs | 0 | ✅ |
+| `warmup_test_e2e.yaml` | 62 logs | 0 | ✅ |
+| `navall.yaml` | 14539 logs | 54（完全包含） | `paired ⊂ navall` |
+| `navhard_two_stage.yaml` | — | — | **文件不存在于本分支** |
+
+`navtest` 另有**双重隔离**：与 `paired_54log` 零交集，且位于不同的 `data_split`（`test` vs `trainval`）。
+
+> 🔴 **本结果不替代 `A1`。** 本地跑的是 **log 级、配置文件之间**的交集；§3.1 要求的是 TSUBAME 上 `dataset_norm/aug/perturbed` **实际产物的 token 级**交集。它只把风险从"完全未知"降到"配置层面已排除"，`CP-2b` 仍以云端 `A1` 为准。
+> 另注：`navhard_two_stage.yaml` 在本分支缺失，而 §4.1 与 `CP-2b` 都把它列为必须排除的评测侧数据 —— `A1` 须在云端确认其存在与内容，否则该项判定无法完成。
 
 ### 3.2 `A2`｜nuScenes 原始数据集
 
@@ -385,9 +532,18 @@ grep -nE "calibrated_sensor|sensor\.json|CAM_|samples/|\.jpg|intrinsic|extrinsic
   tools/render_nuscenes_camera_cross.py | head -40
 ```
 
-**判定后果**：
-- **只读 metadata/标注、不读 RGB 与标定** → 可继续检查是否满足 P1 F1 的边界
-- **读取 source RGB 或标定** → 代码与产物必须标为 P2；不得输入 F0/F1，也不得声称满足 P1
+**判定后果（按 `SD-1` 的 R1/R2/R3 修订）**：报告须对每个被审对象给出**两个计数器**，而非单一判定：
+
+| 计数器 | 判据 | 处置 |
+|---|---|---|
+| `train_path_source_reads` | 从训练/评测入口**可达**（被 `navsim/` 或 `process_data/` 训练评测代码 import/调用）或在 loader allowlist 中，且读取 source RGB/标定 | **必须 = 0**。非 0 → 标 P2，不得输入 F0/F1，不得声称满足 P1 |
+| `viz_path_source_reads` | 仅以独立 CLI 手动调用、产物只落 `outputs/` | 允许 > 0，但**必须逐条列举**行号与读取内容 |
+
+报告还须包含：
+1. **可达性检查**：对每个工具执行 `grep -rn <模块名> --include="*.py" --include="*.yaml" --include="*.sh" --include="*.qsub" .`，记录引用者（注释提及须与代码调用区分）；
+2. **R3 单向阀核对**：确认可视化产物路径**未出现在**任何 `manifests/*.json`、`pairs/*.jsonl` 或训练 config 中。
+
+**T0.1 期间已完成的判定见 §2 `SD-1`**（三个工具的 `train_path_source_reads` 均为 0）；`A4` 仍须在云端对**已有产物**（如 `outputs/poster_pairs/nuscenes_cross_camera/`）重跑一次归属判定。
 
 ### 3.5 审计交付物清单
 
@@ -418,6 +574,14 @@ grep -nE "calibrated_sensor|sensor\.json|CAM_|samples/|\.jpg|intrinsic|extrinsic
 7. **执行契约**：列出 H0、Smoke Test、Full Experiment 与评测各自的准确工作目录、入口文件、完整解析后命令/参数、scheduler wrapper、输入 manifest、预期产物、成功退出条件与失败告警。H0 还必须列出 fixture/sample manifest、坐标系约定以及三项误差/检出率的报告位置；只有“约 50 步”而没有可执行命令不算完成。
 
 **冻结产物与判定：**
+
+**v2.3 追加的三项必记录（来自 T0.1 / O1 侦察）：**
+
+| # | 项目 | 要求 |
+|---|---|---|
+| 8 | **H0 fixture provenance 待定** | Human 裁决不带入 `extract_one_scene.py`，`tools/render_navsim_scene.py` 因此仅归档不可运行。§3.6 第 7 项要求的「H0 fixture / sample manifest」**当前无来源**，须在 `CP-2b` 前补一个决议并写明 fixture 的产生方式与 sha256；未解决即 `BLOCKED` |
+| 9 | **`selection_hash` vs `manifest_seed` 需调和** | `build_alignment_small_data.py` L50–56 用 `_selection_hash(split, log_name, token)` 规范化 sha256 **确定性选样**；`SD-2` 冻结的是 `manifest_seed = 20260909`。二者机制不同。`A5` 须记录：要么该脚本接受 seed，要么显式记「`manifest_seed` 由 `selection_hash` 确定性替代」，并给出复现命令 |
+| 10 | **`SD-9` 交通灯不对称登记进公平性表** | 记为已知偏差：「external 流 `traffic_lights` 恒为空；来源 = nuScenes 无灯态；对 PDMS 无直接分项影响（PDMS 不含 TL 项）；F1 内部两条流语义不一致」 |
 
 - `A5_training_readiness.md` 必须包含“字段 → 实测/解析值 → 证据路径 → 与基准的差异 → PASS/BLOCKED”表；只列配置文件名而不列最终解析值视为未完成。
 - 每个 run 在提交前生成 `config.frozen.yaml`，其内容必须与 A5 表及 registry 计划行一致；Human 检查后对两者记录 sha256。检查后任何配置、manifest、代码或初始化变化都使原 `PASS` 失效，必须新建 `run_id`、重做 A5 与 `CP-CODE` / `CP-2b`。
@@ -513,6 +677,9 @@ X 系列需串行完成：① renderer 接受第二套 camera config ② loader 
 |---|---|---|---|---|---|
 | **SH-A** | A1–A5 资产与训练配置满足使用前提，且 `dataset_*` 与 NAVSIM 评测侧 token 交集为 0 | 无（审计） | 污染 token 数；缺失率；ckpt 判定完备性；A5 配置冻结完备性 | 交集=0、无 UNKNOWN ckpt，且 A5 全部 PASS | 任一交集 > 0 或 A5 任一 BLOCKED → **阻断全部训练** |
 | **SH-0** | source→`C_d` 渲染管线几何正确 | 无（审计） | landmark 重投影 ≤1px；world/ego round-trip ≤1e-3 m / 1e-4 rad；注入 corruption 100% 检出 | 全通过 | 任一不通过 |
+
+> **`SH-0` 的工具对（2026-09-09 确认）**：`tools/render_navsim_scene.py` 产出 `navsim_<token>_camera_params.npz`，`tools/render_nuscenes_camera_cross.py` 将其作为 Render A 的标定消费（后者 docstring L5 明示）；Render B 使用 nuScenes 原生标定。二者构成 `CP-2c` 所需的 **A/B 几何叠图诊断对**（输出 `*_overlay_diagnostic.jpg` / `*_preview.jpg`）。
+> **前置阻断**：这对工具当前**不可运行** —— fixture 来源未定（见 §3.6 第 8 项）、`ogr2ogr` 在 TSUBAME 未查证（`EF-6`）。`SH-0` 的执行方式须先解决这两项。
 | **SH-1** | @ DEV subset，观察加入 external structured raster 后 F1 相对 F0 的方向与幅度 | F0；变量 = nuScenes raster 辅助流有无 | PDMS + 既有分项 | `N/A`：pilot 不设 confirmatory threshold，只报告观测 | `N/A`：pilot 不据此 Refuted，结论为 `Inconclusive` |
 | **SH-3** | 训练管线数值稳定且可复现（工程假说） | 无 | 无 NaN/发散；ckpt 可恢复；同 seed 可复现 | 全满足 | 任一不满足 → **Technical Failure** |
 | **SH-R** | 存在可复用的简易 driving simulator（取状态 / 按 `C_d` 渲 raster / 执行 action / 返回默认 reward） | 无（可行性） | 四项二值判定 + 缺口清单 | 四项全通 | 任一项需自研 > 1 周 |
@@ -650,6 +817,18 @@ export SPRINT_AUDIT=$RAP_ROOT/docs/audits/2026-09-09_asset_audit
 
 **命名铁律**：`raster/` 第一层是**渲染 rig**，第二层是**场景来源**。用目录结构强制修掉 Memo §五点名的 `Old/New Synthetic Raster` 二维混淆——表就再也画不错。
 
+**`C_d` = 4 相机（2026-09-09 更正）**：`process_data/helpers/renderer.py:63–127` 定义了 **8** 个 NAVSIM `camera_params`（`CAM_F0/L0/L1/L2/R0/R1/R2/B0`），但 **RAP 实际只使用其中 4 个**。三处独立证据一致：
+
+| 证据 | 内容 |
+|---|---|
+| `navsim/planning/script/build_alignment_small_data.py:32` | `CAMERA_ORDER = ("CAM_B0","CAM_F0","CAM_L0","CAM_R0")` |
+| `navsim/agents/rap_dino/rap_agent.py:127–134` | `SensorConfig(cam_f0=[3], cam_l0=[3], cam_r0=[3], cam_b0=[3])` |
+| `navsim/agents/rap_dino/bevformer/bev_feature_build.py:28` | 遍历 `cam_b0, cam_f0, cam_l0, cam_r0`；`cam_l1/l2/r1/r2` **被注释掉** |
+
+**因此**：① `Cd_hash` 必须对 **4 相机子集**（B0/F0/L0/R0）计算，不是 8；② **F1 批量渲染器必须渲这 4 个相机**，否则 F1 的 raster 与 F0 不同构、两臂不可比；③ PPT p.2/p.3 的 rig 参数表中「NAVSIM as used by RAP」= **4 相机**。
+
+> 这恰好对上池畑 9/2 的原始设问：「6枚のカメラ … それを4枚で360度をカバーするデータにAdaptationしたい」。nuScenes = 6 相机，RAP/NAVSIM 实际使用 = 4 相机 —— **这正是本研究要处理的 rig 变化本身**，现在有了仓库内的权威出处。
+
 **`run_id`**：`{YYYYMMDD}_{arm}_{budget}_{subset}_{seed}_{git8}`，例 `20260909_F1_b010_DEV_s20260909_a1b2c3d4`
 
 ### 7.3 实验账本（单一真相源）
@@ -704,7 +883,12 @@ TSUBAME:
 
 ### 8.2 操作步骤
 
-**Step 0｜先把 `main` 补齐（`EF-4`，今天必做）**
+**Step 0｜先把 `main` 补齐（`EF-4`）** — ✅ **已于 2026-09-09 完成**
+
+实际入库 4 个原子 commit（逐单元 `CP-CODE` 均获 Human `PASS`）：`2a8e32b3`（U1 nuScenes A/B 诊断）→ `77ecdc08`（U2 NAVSIM 单帧渲染）→ `6ee04292`（U3 paired split，归档）→ `939fc06d`（U4 paired 数据集构建器）。另有两个 doc-only commit：`b71bdb45`（v2.2）、本次 v2.3。
+未带入：`tools/render_navsim_augmentations.py`、`tools/canonical_bev/`、`extract_one_scene.py`（均按 Human 裁决）。**详见 §1 `EF-4` 表。**
+
+<details><summary>原始操作步骤（保留供复现）</summary>
 
 ```bash
 cd /Users/joy/pythonProject/RAP
@@ -726,6 +910,8 @@ git switch -c exp/sprint-0909-base
 每个逻辑单元都必须执行：逐文件 `git checkout <source-branch> -- <exact-path>` → `git status` / `git diff` → `CP-CODE` 等待 Human `PASS` → 对应原子 commit → 记录 SHA；全部通过 `CP-2a` 后才 `git push -u origin exp/sprint-0909-base`。不得把上述六项压成一个 commit。
 
 > ⚠️ **不要 `git merge exp/rap-alignment-regression`**——那是 89 files / +114k 行，会把大量与本冲刺无关的实验性改动一并带入，破坏"`main` 干净"的前提。**逐路径 checkout 是唯一安全做法。**
+
+</details>
 
 **Step 0.5｜把指定 `scripts/` 子目录纳入版本控制（`SD-8` 已通过；执行仍受 `CP-CODE` 门控）**
 
@@ -913,12 +1099,12 @@ A1–A5、H0 或技术检查未通过时，写 `BLOCKED` / `INVALID` / `Technica
 
 | # | 页 | 内容 |
 |---|---|---|
-| 1 | 我希望老师判断什么 | 直接列 `SD-4` / `SD-5` / 3D baseline 排期 / RL 投入比例；已冻结 P1 access boundary 作为前提 |
+| 1 | 我希望老师判断什么 | 直接列 `SD-4` / `SD-5` / **`SD-12`（合法训练集选哪个池）** / 3D baseline 排期 / RL 投入比例；已冻结 P1 access boundary 作为前提 |
 | 2 | 问题定义与协议 | target 是谁、何时知道 calibration、zero/few-shot 数什么、10% scene/log budget + A1/A5 绝对计数 |
 | 3 | 三维数据流表 | **场景来源 × 渲染 rig × 接受的 loss**（修正 Old/New Synthetic 混淆） |
 | 4 | 资产、训练准备审计与 H0 通过证明 | A1 污染检查、A2 完整度、A3 ckpt 合规、A4 边界现状、A5 冻结配置；几何误差与 corruption 检出 |
 | 5 | 最小对照 pilot 结果 | F0/F1；全部标 preliminary / single DEV subset / seeds=20260909；含公平性核对表 |
-| 6 | 我能下 / 不能下的结论 | 科学结论统一 `Inconclusive`；并列原始差值、方向、限制与下一步 confirmatory 缺口 |
+| 6 | 我能下 / 不能下的结论 | 科学结论统一 `Inconclusive`；并列原始差值、方向、限制与下一步 confirmatory 缺口。**必含 `SD-9`：F1 的 external 流恒无交通灯 —— 作为「external 数据是否污染 target」的首个具体实例，并给出分层评估的证伪方案** |
 | 7 | **P2 X 系列设计 + P1 隔离** | 展示已冻结 access boundary、P2 不得流入 P1，以及 `SD-4` 待裁决项 |
 | 8 | **external-rig planning（`SD-5`）** | 并列呈现池畑 Joint Training 与佐藤反对意见，请两位当面裁决 |
 | 9 | RL 可行性 + 下一步 | SH-R 四项判定 + 缺口；3D/BEV baseline 与 Waymo/KITTI 扩展排期 |
@@ -931,7 +1117,7 @@ A1–A5、H0 或技术检查未通过时，写 `BLOCKED` / `INVALID` / `Technica
 
 | 池畑 9/2 的要求 | 本冲刺 | 会后排期 |
 |---|---|---|
-| 明确 Problem Setting，拆细 rig 差异（count / extrinsics / FOV / focal / projection / distortion） | ✅ PPT p.2–3 | 受控 rig 变体实验 |
+| 明确 Problem Setting，拆细 rig 差异（count / extrinsics / FOV / focal / projection / distortion） | ✅ PPT p.2–3。**已定位仓库内权威出处**：`C_d` = 4 相机（B0/F0/L0/R0），nuScenes = 6 相机 —— 正对应池畑「6枚 → 4枚」的原始设问（见 §7.2） | 受控 rig 变体实验 |
 | 先做 baseline，明确"要打倒的敌人" | ✅ F0 | 全量 target 参考（REF） |
 | 必须比较 BEV / 3D feed-forward / 3DGS / VGGT+Fisheye3R 式 adaptation，training data 完全相同 | ❌ 本窗口内不可能 | **会后第一优先**；先做 3D feed-forward 的 zero-shot 可跑性检查（成本最低、收益最高） |
 | 不要"先有 RAP 再找理由" | 🔶 本冲刺只做 F0/F1 development observation，不声称已隔离全部因果 | 未来重新定义曝光控制、标签置换等对照并由 Human 预注册 |
