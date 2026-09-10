@@ -1,10 +1,11 @@
-# 2026-09-09 → 09-11｜48h 实验冲刺计划（Sprint Plan）· **v2.3**
+# 2026-09-09 → 09-11｜48h 实验冲刺计划（Sprint Plan）· **v2.4**
 
 > v2 以 **`docs/20260909/` 下的现有文件 + RAP 开源代码库（本仓库）** 为唯一基准重写，补齐 TSUBAME4.0 执行架构、真实路径规范、数据集策略与 Git 并行方案。
 > 所有涉及云端的断言均已降级为 **待审计项**，并附可执行的审计命令。
 > v2.1 增补逐次 `CP-CODE` Human 检查、原子 commit / 小步迭代规则，以及进入 Smoke Test 前的 `A5` 训练配置与数据冻结门。
 > v2.2 记录 Human 对 `SD-0` 选项 B 及 `SD-7/SD-8` 的裁决，并冻结当前 development pilot 的预算、实验臂、seed、指标、access boundary、checkpoint 规则、Simulator/RL 投入上限与脚本入库边界。
 > v2.3 收敛 **T0.1（`EF-4` 逐路径并入，U1–U4 已 commit）** 与 **O1 渲染管线侦察** 的结果：修订 `EF-4` 定性、新增 `EF-5/EF-6`、新增 `SD-9`～`SD-13`、把 `SD-1` 细化为训练/可视化双路径判据、更正 `C_d` 为 **4 相机**、记入 `A1` 污染门的本地预跑结果。
+> v2.4 收敛 **T0.2（`SD-8` 脚本白名单）** 与 **T0.3（工作树清理）**：登记 `scripts/agent_tools/` 的**事后补批**、新增 `SD-14`（并发写入者的分支与 push 隔离）与 `EF-7`（TSUBAME 侧 worktree/分支状态未验证）、归档一份**非 A1–A5** 的 dataset path-layout 审计并标注其提案仍待批准。
 
 ---
 
@@ -180,6 +181,37 @@ which ogr2ogr && ogr2ogr --version
 
 **缓解**：`--map-gpkg` 为可选参数（default `None`）；但不带地图则 raster **没有 HD-map 几何、也没有交通灯**，H0 的 raster 叠图检查将失去大部分可检内容。
 
+### `[EF-7]｜TSUBAME 侧 worktree 与分支状态未验证` 🔴 阻断作业提交
+
+2026-09-10 在本地 Mac 仓库中发现一条**错配**的 worktree 注册：
+
+```
+/gs/bs/tga-RLA/qdeng/RAP-p1   6bca83e5  [exp/sprint-0909-p1]   prunable
+```
+
+三处不符：
+
+| # | 问题 |
+|---|---|
+| 1 | §8.2 Step 2 规定 `RAP-p1` 应检出 **`exp/sprint-0909-base`**，实际记录的是**另一个分支 `exp/sprint-0909-p1`** |
+| 2 | `exp/sprint-0909-p1`（`6bca83e5`）**四项 T0.1 资产全部 MISSING**（逐路径验证）。若从该 worktree 提交 F0/F1，跑的是**没有 U1–U4 的代码** |
+| 3 | 标记 `prunable: gitdir file points to non-existent location` —— 本地 Mac 仓库注册了一个指向 TSUBAME 路径的 worktree，而该路径在本机不存在 |
+
+**已执行（仅本地 Mac 仓库）**：`git worktree prune` 清除陈旧注册；`git branch -d exp/sprint-0909-p1` 删除冗余分支。删除前已验证 `6bca83e5` 是 `HEAD` 的祖先、该分支**无独有 commit**、远端**无对应分支**，因此未丢失任何 commit。
+
+**未执行、必须由 Human 在 TSUBAME 上完成**：本机无法触及 `/gs/bs/tga-RLA/qdeng/`。登录后须先查证再修复：
+
+```bash
+cd /gs/bs/tga-RLA/qdeng/RAP
+git worktree list
+git -C /gs/bs/tga-RLA/qdeng/RAP-p1 rev-parse --abbrev-ref HEAD 2>/dev/null
+git -C /gs/bs/tga-RLA/qdeng/RAP-p1 log --oneline -1 2>/dev/null
+```
+
+若 `RAP-p1` 不在 `exp/sprint-0909-base` 上，或其 `HEAD` 早于 `939fc06d`（U4），则**必须先修复再提交任何作业**：`git fetch origin` → 切到 `exp/sprint-0909-base` → 确认 `git log --oneline -1` 至少包含 T0.1 四项 → 再按 §8.2 Step 3 重建符号链接、Step 4 自证 `git_sha`。
+
+> ⚠️ 在 `EF-7` 查证通过前，**不得提交 F0/F1 作业** —— 否则无法证明跑的是哪份代码。
+
 ---
 
 ## 2. 熔断清单 `[Scientific Decision Required]`
@@ -289,7 +321,28 @@ v1 的 `SD-1/2/3`、`F0/F1/F2/F3/A0/A1` 命名、`b*=10%`、`δ_main=1.0`、`Fin
 
 **Human 决议（2026-09-09）**：允许将 `scripts/jobs/` 与 `scripts/audit/` 纳入版本控制；`scripts/` 下其他内容继续忽略。具体 `.gitignore` 修改与目录纳入按 `EF-2`、§8.0 和 `CP-CODE` 执行，不得把未检查的其他脚本一并加入。
 
-> ⚠️ 执行前须先处置一处**来源不明**的 `.gitignore` 改动（2026-09-09 发现，新增 `.agent_jobs/` 并补末尾换行，非 T0.1 各单元所为）。
+**✅ 已于 2026-09-10 执行完毕（commit `7b13ad59`，`CP-CODE: T0.2` 获 Human `PASS`）。**
+
+`.gitignore` L7 由 `scripts/` 改为 `scripts/*` + 6 条白名单。`git check-ignore` 实测：
+
+| 路径 | 判定 |
+|---|---|
+| `scripts/jobs/x.sh` / `scripts/audit/y.py` / `scripts/agent_tools/safe_run.py` | ✅ allowed |
+| `scripts/alignment/z.sh` / `scripts/recovery_audit.qsub` | 🔒 IGNORED |
+
+即**只放行三个授权目录**，`scripts/` 下其余 20 余个既有脚本仍被忽略。两个 `.gitkeep` 内写入了目录结构约定（`jobs/`：`EF-1` 期间的 `.body.sh`/`.qsub`/`.sbatch` 分层 + §8.2 Step 4 四项义务；`audit/`：A1–A5 脚本名 + §3.0 只读/双产物/首部规范）。
+
+### 🟠 `scripts/agent_tools/`：事后补批（Human 裁决 A1，2026-09-10）
+
+第三个目录 `scripts/agent_tools/`（7 个文件）**并非本裁决原本授权的范围**。它由并发写入者的 commit `972bbe60 feat: add low-token agent tools` 以 `git add -f` 强制加入，该 commit：
+
+- 一次打包三个不同目的（agent 工具 / `AGENTS.md` / `.gitignore`），违反 §8.0「一个可独立检查的单一目的 = 一个 commit」；
+- message body 为空，**无 `CP-CODE` 标注**，未经 Human 检查；
+- 超出 `SD-8` 原文「不得把未检查的其他脚本一并加入」的边界。
+
+**Human 决议（2026-09-10）**：**保留 + 补批**。追认 `scripts/agent_tools/` 进入 `SD-8` 授权范围，白名单一并放行，使其 ignore 状态自洽（此前是"被 ignore 但已跟踪"的混淆态）。**本条登记为「事后补批，未走 `CP-CODE`」**，不构成对未来同类操作的许可 —— 后续一律按 §8.0 / §9.0 执行。
+
+> 该 commit 同时引入的 `.agent_jobs/` 与末尾换行修复已原样保留，T0.2 采取**合并而非回退**。
 
 ### `SD-9｜F1 external 流的交通灯通道恒空` ✅ Human 已裁决：(a) + (d)
 
@@ -358,6 +411,30 @@ nuScenes 自建轨迹须对齐到同样的 **4 历史帧 + 10 未来帧 + interv
 **决议**：F0/F1 **一律使用 `SD-2` 的随机 10% DEV manifest**；`paired_trainval.yaml` / `paired_54log.yaml` 仅作**归档**入库（commit `6ee04292`），不进入任何实验配置。
 
 > 附：`build_alignment_small_data.py` **不依赖**这两个文件（它走自己的 `--split-config`），因此本裁决不影响该脚本可用性。
+
+### `SD-14｜并发写入者的分支与 push 隔离` ✅ Human 已裁决：B1
+
+**观察到的事实（2026-09-10）**：`exp/sprint-0909-base` 上出现了非受控会话的写入。
+
+| 时间 | commit | 来源 |
+|---|---|---|
+| 13:05:47 | `5b9f1dc0` v2.3 | 受控会话 |
+| **13:05:23** | **`972bbe60` feat: add low-token agent tools** | **并发写入者** |
+| 13:00:24 | `b71bdb45` v2.2 | 受控会话 |
+
+且 `origin/exp/sprint-0909-base` 已指向 `5b9f1dc0` —— **受控会话从未执行过 `git push`**，说明并发写入者不仅提交、还**推送**到了远端。
+
+**为什么这是硬风险**：§8.2 Step 4 的 dirty 检查与 `git_sha` 自证**假定单一写入者**。一个跑数小时的 TSUBAME 作业若在运行中被换掉分支上的代码，**不会报错，只会静默污染实验**（§8.3 坑 #2 / #5）。§8.1 用 worktree 解决的正是这个问题，但**同一分支上的并发写入者会绕过 worktree 的保护**。
+
+**Human 决议（2026-09-10）**：采用 **B1 —— 按 §8.1「每个实验族一个分支」隔离**。
+
+| 规则 | 内容 |
+|---|---|
+| R-1 | `exp/sprint-0909-base` **只保留 F0/F1 的代码路径**。工具类、agent 类、与实验臂无关的改动一律走 **`exp/sprint-0909-tools`**（已于 2026-09-10 创建于 `7b13ad59`） |
+| R-2 | **隔离必须同时覆盖 `push`**。否则未经 `CP-CODE` 的内容仍会到达远端，进而被 TSUBAME 侧 `git fetch` 拉走 |
+| R-3 | 任何对 `exp/sprint-0909-base` 的写入必须先通过 §9.0 `CP-CODE` 并获得 Human `PASS` |
+
+> 执行状态：`exp/sprint-0909-tools` 分支已建。裁决时机器上**无其他 Claude 会话在运行**，无法直接通知写入者，因此本条以**文档规则 + 分支落点**形式生效，需由 Human 向该 writer 传达。
 
 ---
 
@@ -558,6 +635,23 @@ grep -nE "calibrated_sensor|sensor\.json|CAM_|samples/|\.jpg|intrinsic|extrinsic
 ├── A5_training_readiness.md   # ⭐ 训练配置、数据体量、初始化与复现条件的冻结审计
 └── raw/                       # 原始 jsonl / 命令输出
 ```
+
+> 🔴 **截至 2026-09-10，上述目录仍不存在 —— A1–A5 尚未到达，`CP-2b` 未满足，不得开始 Smoke Test 或任何训练。**
+
+**另有一份已归档但性质不同的审计**（commit `113413e9`）：
+
+```
+docs/audits/datasets/
+├── path_layout.md      # 74 行，dataset path layout 方案 + 审计
+├── maintenance.md      # 89 行
+└── raw/                # filesystem / navsim_references / nuscenes_references
+                        #   （20260910T092936+0900）
+```
+
+**它不是 A1–A5**，不能用于满足 `CP-2b`。其自述状态为 **「PASS（方案可审核）/ BLOCKED（未获 Human 路径批准）」**，提案是在 `/gs/bs/tga-RLA/qdeng/datasets/` 建 canonical symlink 层，并声明本轮**未执行任何 `mv`/`cp`/`rm`、未创建或替换任何 symlink**。
+
+> ⚠️ **归档 ≠ 批准。** 该路径方案仍待 Human 单独裁决；在获批前不得据此移动或链接任何数据。
+> `raw/` 内为 `.jsonl`，不受 `EF-3` 的 `*.json` 规则影响，无需白名单。
 
 ### 3.6 `A5`｜训练前配置与数据冻结审计 🆕
 
@@ -929,11 +1023,21 @@ git commit -m "chore: version-control job and audit scripts (was fully gitignore
 
 没有这一步，worktree 里**不会有任何作业脚本**——这是 `EF-2` 的直接后果。
 
-**Step 1｜本地确认干净**
+**Step 1｜本地确认干净** — ✅ **已于 2026-09-10 达成（T0.3）**
 
 ```bash
 git status --porcelain          # 必须为空（或只剩 .DS_Store 之类）
 ```
+
+T0.3 按 Human 逐类裁决处置了全部未跟踪项，**未删除任何文件**，三个原子 commit：
+
+| commit | 内容 |
+|---|---|
+| `372d1fc2` | ignore 规则：`.DS_Store` / `exit_code` / `*.o[0-9]*` / `*.e[0-9]*` / `.pnpm-store/` / `env/`（§7.1 含敏感值）/ `docs/figs/` / `docs/slides/node_modules/` / `tools/md2pdf/` / `nuscenes-mini/`。**另修正一处长期失效的规则**：L35 的 `nuscenes_mini/` 是下划线，实际目录为 `nuscenes-mini/`（连字符），从未匹配 |
+| `f9880fac` | PPT 工具链入库：`docs/slides/package.json` + `package-lock.json` + `assets/*.png`（12 张）。需三条否定规则抵消仓库级 `*.png`(L22) 与 `*.json`(L25)：`!docs/slides/package.json`、`!docs/slides/package-lock.json`、`!docs/slides/assets/**` |
+| `113413e9` | 归档 dataset path-layout 审计（见 §3.5 注记） |
+
+执行后 `git status --short` 为空。`git check-ignore` 对 14 条代表性路径逐一实测通过。
 
 > worktree **不会携带未提交改动**。当前工作树若有未提交内容，`git worktree add` 出来的是干净的旧代码——这是最常见、最难发现的坑。
 
