@@ -21,6 +21,7 @@ MySubmission
 outputs/
 .agents/
 .codex/
+.agent_jobs/
 nuplan-devkit/
 process_data/scenarionet/
 train_metric_cache/
