@@ -11,6 +11,9 @@ scripts/*
 !scripts/audit/**
 !scripts/agent_tools/
 !scripts/agent_tools/**
+# 上面的 `!scripts/<dir>/**` 会把 __pycache__ 一并重新纳入，覆盖通用规则。
+# 本条置于白名单之后（后出现者优先）以重新排除。
+scripts/**/__pycache__/
 data/
 dataset_aug/
 dataset_norm/
@@ -21,6 +24,9 @@ wandb
 *.jpg
 *.png
 *.ckpt
+# `*.ckpt` 只匹配文件；ckpts/ 内还有 dinov3_*.pth 等非 .ckpt 权重，
+# 导致整个目录以 `?? ckpts/` 出现并触发 §8.2 Step 4 的 dirty 拒跑。
+ckpts/
 MySubmission
 *.json
 *.pkl
