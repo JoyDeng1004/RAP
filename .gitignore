@@ -4,7 +4,13 @@
 exp/*
 *.pyc
 *.egg-info
-scripts/
+scripts/*
+!scripts/jobs/
+!scripts/jobs/**
+!scripts/audit/
+!scripts/audit/**
+!scripts/agent_tools/
+!scripts/agent_tools/**
 data/
 dataset_aug/
 dataset_norm/
