@@ -18,7 +18,7 @@ data/
 dataset_aug/
 dataset_norm/
 dataset_perturbed/
-dataset_navsim/
+datasets/
 metric_cache
 cache
 wandb
