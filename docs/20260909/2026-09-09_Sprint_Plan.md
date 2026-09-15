@@ -23,6 +23,9 @@
 | 9/2 池畑 1v1 转录 | `context/20260902_ikehata.txt` | ✅ 在库 |
 | 9/8 佐藤 1v1 转录 | `context/20260908_sato.txt` | ✅ 在库 |
 | 代码库 | 本仓库 `main` 分支（`JoyDeng1004/RAP`，RAP 上游 fork） | ✅ 在库 |
+| **RAP 原论文训练设定基准** | **`rap_paper_baseline.md`** | 🔴 **骨架已建，「原论文值」待 Human 填写** |
+
+> `rap_paper_baseline.md` 是 §3.6 第 5 项所称「**本目录**给出的原论文参数值」的唯一载体。在它填好之前，该项的**任何**参数都不得由 Agent 推测或补写。
 
 ### 0.2 时间与运行环境
 
@@ -791,6 +794,17 @@ docs/audits/datasets/
 3. **训练 epoch / schedule**：明确 `epochs`、`max_steps`、每 epoch step 数、global/effective batch size、gradient accumulation、warmup、early stopping、checkpoint 保存频率，以及 resume 后剩余 epoch/step 的计算方式。若训练按 step 驱动，也必须给出等效 epoch；不得只写“沿用默认值”。
 4. **初始化与恢复方式**：F0/F1 必须明确记录 `from scratch`。仅同一 `run_id` 在 code/config/data hash 完全一致时允许续训，并记录 checkpoint 路径、sha256、已完成 epoch/step 与剩余 schedule；既有 checkpoint 不得加载。P2 distillation 未另行获批前标 `BLOCKED`。
 5. **与原论文设定的逐项对照**：至少对照 optimizer、learning rate、scheduler、warmup、weight decay、batch size、输入分辨率、augmentation、loss 及其权重、训练更新预算和 checkpoint 策略。每项必须写 `一致 / 有意偏离 / 无法核验`、证据位置和偏离理由；`无法核验` 或未获 Human 接受的偏离均为 `BLOCKED`。本目录没有给出的原论文参数值不得由 Agent 推测或补写。
+
+> **载体（2026-09-10 建立）**：`docs/20260909/rap_paper_baseline.md`。
+> 结构 = §0 元信息（论文版本/出处，Human 填）+ §1 **18 行主对照表** + §1.1 **13 项 loss 权重展开** + §2 三处仓库内矛盾 + §3 回填路径。
+> 「当前实现值」与「证据位置」已由 Agent 逐条核实填入（核实于 commit `f569b322`，15 处引用行号全部复核通过）；**「原论文值 / 判定 / 偏离理由」三列留空，须 Human 填写。**
+>
+> 🔶 **待批的词表偏离**：该文件在计划规定的 `一致 / 有意偏离 / 无法核验` 三值外增加了第四值 **`无基准`**，用于「论文确实未给出该参数」。理由：它与 `无法核验` 后果不同 —— 后者按本项为 `BLOCKED` 且会永久卡死 `CP-2b`，而"论文本就没写"是客观事实，不应产生同样后果。**此偏离须 Human 明确批准；不批则该四值退回三值，相应行停在 `BLOCKED`。**
+>
+> 🔴 **建表时新查出三处仓库内矛盾**（详见该文件 §2），它们**不是**论文对照问题，即使论文值全部填好也仍会让 `A5` 主表相应行停在 `BLOCKED`，须 Human 各出一条裁决：
+> - **注 A｜augmentation 名实不符**：仓库有 `dataset_aug`（450 万 jpg），但 agent yaml / training yaml / `RAPConfig` 三处**零 augmentation 配置项** —— 本项目的 augmentation 是**离线数据生成**而非训练时变换。须裁 `A5` 该栏口径 + F0/F1 是否消费 `dataset_aug`（§3.7：该根有 20 个 truncated pickle）
+> - **注 B｜训练预算自相矛盾**：`default_training.yaml:38` `max_epochs=100` vs `rap_agent.py:579` `WarmupCosLR(epochs=20)`
+> - **注 C｜`from scratch` 无法自证**：`rap_agent.yaml:20` `checkpoint_path: ''` 表面为 scratch，但 `run_training.py:190` **硬编码** `ckpt_path='last'`，复用 output dir 会静默自动 resume —— 直接冲突于 `SD-0` 冻结的「F0/F1 必须 from scratch」。检查卡见 `cp_code_A5C_from_scratch.md`
 6. **其他有效性与可复现性配置**：随机 seed、subset 生成规则、renderer / target rig 配置与 hash、预处理与缓存版本、各 loss 开关、数据混合/采样比例、precision、分布式训练方式、硬件节点、软件环境、评测器版本与指标、输出目录、`git_sha`、dirty 状态、`run_id`、失败与恢复策略。
 7. **执行契约**：列出 H0、Smoke Test、Full Experiment 与评测各自的准确工作目录、入口文件、完整解析后命令/参数、scheduler wrapper、输入 manifest、预期产物、成功退出条件与失败告警。H0 还必须列出 fixture/sample manifest、坐标系约定以及三项误差/检出率的报告位置；只有“约 50 步”而没有可执行命令不算完成。
 

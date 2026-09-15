@@ -1,9 +1,0 @@
-# scripts/audit/ — 资产审计脚本（版本控制，SD-8）
-#
-# 对应 Sprint_Plan §3 的 A1–A5：
-#   a1_split_membership.py   dataset_* 与官方 split 的 token 级交集（污染门）
-#   a3_probe_ckpt.py         checkpoint 内部结构与 ALLOWED_AS_INIT 判定
-#
-# §3.0 通用规范：只读，不得写入被审计目录；每项产出 <name>.md（人读）
-# 与 <name>.jsonl（机读）；报告首部记录审计时间、执行主机、
-# git rev-parse HEAD、RAP_ROOT、执行者。
