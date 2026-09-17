@@ -20,32 +20,36 @@ def LoadMultiViewImageFromFiles(agent_input,synthetic=False):
     lidar2img_rts = []
     lidar2cam_rts = []
     cam_intrinsics = []
-   # image_result["camera2ego"] = []
     image_result["camera_intrinsics"] = []
     image_result["img"] = []
     validity_list = []
 
     for cameras in agent_input.cameras[-1:]:
-        for cam in [cameras.cam_b0, cameras.cam_f0, cameras.cam_l0,cameras.cam_r0]:#, cameras.cam_l1, cameras.cam_r1 cameras.cam_l1, cameras.cam_l2, , cameras.cam_r1, cameras.cam_r2
+        for cam in [cameras.cam_b0, cameras.cam_f0, cameras.cam_l0, cameras.cam_r0]:
             if cam.image is None:
                 continue
+            # Select calibration that matches the image source.
             if synthetic:
                 img = cam.rendered_image.astype(np.float32)
                 validity = torch.tensor(True)
+                sensor2lidar_rotation = cam.render_sensor2lidar_rotation
+                sensor2lidar_translation = cam.render_sensor2lidar_translation
+                intrinsic = cam.render_intrinsics
             else:
                 img = cam.image.astype(np.float32)
                 validity = torch.tensor(cam.real_valid)
+                sensor2lidar_rotation = cam.sensor2lidar_rotation
+                sensor2lidar_translation = cam.sensor2lidar_translation
+                intrinsic = cam.intrinsics
 
             image_result["img"].append(img)
             validity_list.append(validity)
 
-            # obtain lidar to image transformation matrix
-            lidar2cam_r = np.linalg.inv(cam.sensor2lidar_rotation)
-            lidar2cam_t = cam.sensor2lidar_translation @ lidar2cam_r.T
+            lidar2cam_r = np.linalg.inv(sensor2lidar_rotation)
+            lidar2cam_t = sensor2lidar_translation @ lidar2cam_r.T
             lidar2cam_rt = np.eye(4)
             lidar2cam_rt[:3, :3] = lidar2cam_r.T
             lidar2cam_rt[3, :3] = -lidar2cam_t
-            intrinsic = cam.intrinsics
             viewpad = np.eye(4)
             viewpad[:intrinsic.shape[0], :intrinsic.shape[1]] = intrinsic
             lidar2img_rt = (viewpad @ lidar2cam_rt.T)
@@ -54,9 +58,8 @@ def LoadMultiViewImageFromFiles(agent_input,synthetic=False):
             cam_intrinsics.append(viewpad)
             lidar2cam_rts.append(lidar2cam_rt.T)
 
-            # camera intrinsics
             camera_intrinsics = np.eye(4).astype(np.float32)
-            camera_intrinsics[:3, :3] = cam.intrinsics
+            camera_intrinsics[:3, :3] = intrinsic
             image_result["camera_intrinsics"].append(camera_intrinsics)
 
 
@@ -74,8 +77,6 @@ def LoadMultiViewImageFromFiles(agent_input,synthetic=False):
 def _get_bev_feature( agent_input, training: bool=False):
     synthetic_image_result=LoadMultiViewImageFromFiles(agent_input,synthetic=True)
     real_image_result=LoadMultiViewImageFromFiles(agent_input,synthetic=False)
-    # if training:
-    #     image_result = PhotoMetricDistortionMultiViewImage(image_result)
     image_result = synthetic_image_result
     image_result = NormalizeMultiviewImage(image_result)
     image_result = RandomScaleImageMultiViewImage(image_result)
@@ -91,11 +92,13 @@ def _get_bev_feature( agent_input, training: bool=False):
     real_camera_feature = torch.tensor(np.ascontiguousarray(np.stack(imgs, axis=0)))
 
 
+    # Preserve rendered calibration for the rendered-image forward pass.
     features = {"camera_feature": real_camera_feature,
                 "camera_valid":real_image_result["validity"],
                 "rendered_camera_feature":synthetic_camera_feature,
-                "img_shape": torch.FloatTensor(np.stack(real_image_result["img_shape"])),#8,3
-                "lidar2img": torch.FloatTensor(np.stack(real_image_result["lidar2img"]))#8,4,4
+                "img_shape": torch.FloatTensor(np.stack(real_image_result["img_shape"])),
+                "lidar2img": torch.FloatTensor(np.stack(real_image_result["lidar2img"])),
+                "rendered_lidar2img": torch.FloatTensor(np.stack(synthetic_image_result["lidar2img"]))
                 }
 
     return features
