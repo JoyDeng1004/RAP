@@ -32,8 +32,6 @@ class AgentLightningModule(pl.LightningModule):
         super().__init__()
         self.agent = agent
         self.distill_feature = agent._config.distill_feature
-        # self.real_feat = []
-        # self.synth_feat = []
 
     def _step(self, batch: Tuple[Dict[str, Tensor], Dict[str, Tensor]], logging_prefix: str) -> Tensor:
         """
@@ -44,7 +42,6 @@ class AgentLightningModule(pl.LightningModule):
         """
         features, targets = batch
         batch_size = features['camera_valid'].shape[0]
-        #features['camera_feature'] = features.pop('rendered_camera_feature')
         prediction = self.agent.forward(features,targets)
         loss_dict = self.agent.compute_loss(features, targets, prediction)
         if 'rfs_trajs' in targets:
@@ -77,8 +74,8 @@ class AgentLightningModule(pl.LightningModule):
                 rater_specified_trajectories_list,
                 rater_scores_list,
                 initial_speed,
-                frequency=4,  # Default is 4.
-                length_seconds=5, # Default predict 5 seconds.
+                frequency=4,
+                length_seconds=5,
                 output_trust_region_visualization=False,
             )
             loss_dict['rater_feedback_score'] = torch.tensor(rater_feedback_metrics['rater_feedback_score']).mean().to(self.device)
@@ -90,16 +87,14 @@ class AgentLightningModule(pl.LightningModule):
             img_std  = [58.395, 57.12, 57.375]
             camera = features['camera_feature'][visualize_idx, 1].permute(1, 2, 0).cpu().numpy()
             camera = (camera * img_std + img_mean).astype(np.uint8)
-            camera = camera[:, :, ::-1]  # BGR->RGB
+            camera = camera[:, :, ::-1]  # Convert BGR to RGB for visualization.
 
             ego_status = features['ego_status'][visualize_idx, -1].cpu().numpy()
             pred_traj  = prediction['trajectory'][visualize_idx].detach().cpu().numpy()[:, :2]
             gt_traj    = targets['trajectory'][visualize_idx].cpu().numpy()[:, :2]
 
-            # === 创建 1x2 子图 ===
             fig, axs = plt.subplots(1, 2, figsize=(12, 6))
 
-            # 子图1: Camera
             axs[0].imshow(camera)
             axs[0].set_title("Camera View")
             axs[0].axis('off')
@@ -107,7 +102,6 @@ class AgentLightningModule(pl.LightningModule):
             props = dict(boxstyle='round', facecolor='white', alpha=0.8)
             axs[0].text(5, 20, status_text, fontsize=10, va='top', bbox=props)
 
-            # 子图2: Trajectory
             axs[1].plot(pred_traj[:, 0], pred_traj[:, 1], 'ro-', label="Predicted")
             axs[1].plot(gt_traj[:, 0],   gt_traj[:, 1],   'go-', label="Ground Truth")
             for i in range(len(pred_traj)):
@@ -119,7 +113,6 @@ class AgentLightningModule(pl.LightningModule):
 
             plt.tight_layout()
 
-            # 上传 wandb
             wandb.log({f"{logging_prefix}/visualization": [wandb.Image(fig)]})
             plt.close(fig)
 
@@ -151,12 +144,15 @@ class AgentLightningModule(pl.LightningModule):
         batch_size = real_valid_mask.shape[0]
         self.agent._rap_model.batch_size = batch_size
 
-        real_features = {k: v[real_valid_mask] for k, v in features.items() if k not in ['camera_valid','rendered_camera_feature']}
+        real_features = {k: v[real_valid_mask] for k, v in features.items() if k not in ['camera_valid','rendered_camera_feature','rendered_lidar2img']}
 
         real_targets = {k: v[real_valid_mask] if isinstance(v, torch.Tensor) else [x for x, m in zip(v, real_valid_mask) if m] for k, v in targets.items()}
 
         features.pop('camera_valid')
+        # Keep rendered images paired with their own projection matrices.
         features['camera_feature'] = features.pop('rendered_camera_feature')
+        if 'rendered_lidar2img' in features:
+            features['lidar2img'] = features.pop('rendered_lidar2img')
         rendered_features = features
         rendered_targets = targets        
 
@@ -196,16 +192,12 @@ class AgentLightningModule(pl.LightningModule):
                         rater_specified_trajectories_list,
                         rater_scores_list,
                         initial_speed,
-                        frequency=4,  # Default is 4.
-                        length_seconds=5, # Default predict 5 seconds.
+                        frequency=4,
+                        length_seconds=5,
                         output_trust_region_visualization=False,
                     )
                     loss_dict['rater_feedback_score'] = torch.tensor(rater_feedback_metrics['rater_feedback_score']).mean().to(self.device)
             else:
-                # prediction = self.agent.forward(rendered_features,rendered_targets)
-                # loss_dict = self.agent.compute_loss(rendered_features, rendered_targets, prediction)
-                # ade_real = torch.mean(torch.norm(prediction['trajectory'][:,:,:2] - rendered_targets['trajectory'][:,:,:2], dim=-1))
-                # loss_dict['ade_real'] = ade_real
                 return 0
         else:
             all_features = {}
@@ -224,7 +216,7 @@ class AgentLightningModule(pl.LightningModule):
             if real_valid_mask.any():
                                                 
                 domain_logits = prediction['domain_logits']
-                N_synth = batch_size       # synthetic 数量
+                N_synth = batch_size
                 N_real = domain_logits.shape[0] - N_synth
 
                 if N_synth == 0 or N_real == 0:
@@ -234,9 +226,10 @@ class AgentLightningModule(pl.LightningModule):
                     pos_weight = torch.tensor([N_synth / max(1, N_real)], device=domain_logits.device)
                     bce_logits = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
+                    # Rendered samples use label 0; real samples use label 1.
                     domain_labels = torch.cat([
-                        torch.zeros(N_synth, device=domain_logits.device),  # synthetic=0
-                        torch.ones(N_real, device=domain_logits.device)     # real=1
+                        torch.zeros(N_synth, device=domain_logits.device),
+                        torch.ones(N_real, device=domain_logits.device)
                     ], dim=0)
                     domain_loss = bce_logits(domain_logits, domain_labels.float())
 
@@ -249,8 +242,6 @@ class AgentLightningModule(pl.LightningModule):
                 loss_render = F.mse_loss(render_bev, real_bev)
                 loss_dict['loss'] += self.agent._config.distill_feature_weight * loss_render
 
-                # self.real_feat.append(real_bev.detach().cpu().numpy()[:,1].mean(axis=-2))
-                # self.synth_feat.append(render_bev.detach().cpu().numpy()[:,1].mean(axis=-2))
                 ade_real = torch.mean(torch.norm(prediction['trajectory'][batch_size:,:,:2] - all_targets['trajectory'][batch_size:,:,:2], dim=-1))
                 loss_dict['ade_real'] = ade_real
                 loss_dict['loss_render'] = loss_render
@@ -264,10 +255,9 @@ class AgentLightningModule(pl.LightningModule):
             projected_feats = prediction['projected_feats'][visualize_idx,1].detach().cpu().numpy()
             dino_feats = prediction['dino_feats'][visualize_idx,1].detach().cpu().numpy()
 
-            rgb_dino, bg_mask, thr = visualize_dino_pca_sklearn(dino_feats)      # (H,W,3)
+            rgb_dino, bg_mask, thr = visualize_dino_pca_sklearn(dino_feats)
             rgb_proj, bg_mask2, thr2 = visualize_dino_pca_sklearn(projected_feats)
 
-            # 反归一化相机图像
             img_mean = [123.675, 116.28, 103.53]
             img_std = [58.395, 57.12, 57.375]
             camera = all_features['camera_feature'][visualize_idx,1].permute(1, 2, 0).cpu().numpy()
@@ -278,10 +268,8 @@ class AgentLightningModule(pl.LightningModule):
             pred_traj = prediction['trajectory'][visualize_idx].detach().cpu().numpy()[:, :2]
             gt_traj   = all_targets['trajectory'][visualize_idx].cpu().numpy()[:, :2]
 
-            # === 创建 2x2 子图 ===
             fig, axs = plt.subplots(2, 2, figsize=(12, 12))
 
-            # 子图1: Camera
             axs[0,0].imshow(camera)
             axs[0,0].set_title("Camera View")
             axs[0,0].axis('off')
@@ -289,12 +277,10 @@ class AgentLightningModule(pl.LightningModule):
             props = dict(boxstyle='round', facecolor='white', alpha=0.8)
             axs[0,0].text(5, 20, status_text, fontsize=10, verticalalignment='top', bbox=props)
 
-            # 子图2: Dino features (PCA RGB)
             axs[0,1].imshow(rgb_dino)
             axs[0,1].set_title("DINO Features PCA")
             axs[0,1].axis('off')
 
-            # 子图3: Trajectory
             axs[1,0].plot(pred_traj[:, 0], pred_traj[:, 1], 'ro-', label="Predicted")
             axs[1,0].plot(gt_traj[:, 0], gt_traj[:, 1], 'go-', label="Ground Truth")
             for i in range(len(pred_traj)):
@@ -304,26 +290,22 @@ class AgentLightningModule(pl.LightningModule):
             axs[1,0].set_xlabel("X"); axs[1,0].set_ylabel("Y")
             axs[1,0].legend(); axs[1,0].grid(True); axs[1,0].axis('equal')
 
-            # 子图4: Projected features (可选)
             axs[1,1].imshow(rgb_proj)
             axs[1,1].set_title("Projected Features PCA")
             axs[1,1].axis('off')
 
             plt.tight_layout()
 
-            # 上传 wandb
             wandb.log({f"{logging_prefix}/visualization": [wandb.Image(fig)]})
             plt.close(fig)
 
-########################
             visualize_idx = 1
             projected_feats = prediction['projected_feats'][visualize_idx,1].detach().cpu().numpy()
             dino_feats = prediction['dino_feats'][visualize_idx,1].detach().cpu().numpy()
 
-            rgb_dino, bg_mask, thr = visualize_dino_pca_sklearn(dino_feats)      # (H,W,3)
+            rgb_dino, bg_mask, thr = visualize_dino_pca_sklearn(dino_feats)
             rgb_proj, bg_mask2, thr2 = visualize_dino_pca_sklearn(projected_feats)
 
-            # 反归一化相机图像
             img_mean = [123.675, 116.28, 103.53]
             img_std = [58.395, 57.12, 57.375]
             camera = all_features['camera_feature'][visualize_idx,1].permute(1, 2, 0).cpu().numpy()
@@ -334,10 +316,8 @@ class AgentLightningModule(pl.LightningModule):
             pred_traj = prediction['trajectory'][visualize_idx].detach().cpu().numpy()[:, :2]
             gt_traj   = all_targets['trajectory'][visualize_idx].cpu().numpy()[:, :2]
 
-            # === 创建 2x2 子图 ===
             fig, axs = plt.subplots(2, 2, figsize=(12, 12))
 
-            # 子图1: Camera
             axs[0,0].imshow(camera)
             axs[0,0].set_title("Camera View")
             axs[0,0].axis('off')
@@ -345,12 +325,10 @@ class AgentLightningModule(pl.LightningModule):
             props = dict(boxstyle='round', facecolor='white', alpha=0.8)
             axs[0,0].text(5, 20, status_text, fontsize=10, verticalalignment='top', bbox=props)
 
-            # 子图2: Dino features (PCA RGB)
             axs[0,1].imshow(rgb_dino)
             axs[0,1].set_title("DINO Features PCA")
             axs[0,1].axis('off')
 
-            # 子图3: Trajectory
             axs[1,0].plot(pred_traj[:, 0], pred_traj[:, 1], 'ro-', label="Predicted")
             axs[1,0].plot(gt_traj[:, 0], gt_traj[:, 1], 'go-', label="Ground Truth")
             for i in range(len(pred_traj)):
@@ -360,14 +338,12 @@ class AgentLightningModule(pl.LightningModule):
             axs[1,0].set_xlabel("X"); axs[1,0].set_ylabel("Y")
             axs[1,0].legend(); axs[1,0].grid(True); axs[1,0].axis('equal')
 
-            # 子图4: Projected features (可选)
             axs[1,1].imshow(rgb_proj)
             axs[1,1].set_title("Projected Features PCA")
             axs[1,1].axis('off')
 
             plt.tight_layout()
 
-            # 上传 wandb
             wandb.log({f"{logging_prefix}/visualization1": [wandb.Image(fig)]})
             plt.close(fig)           
         return loss_dict['loss']
@@ -400,12 +376,15 @@ class AgentLightningModule(pl.LightningModule):
         
         batch_size = real_valid_mask.shape[0]
 
-        real_features = {k: v[real_valid_mask] if isinstance(v, torch.Tensor) else [x for x, m in zip(v, real_valid_mask) if m] for k, v in features.items() if k not in ['camera_valid','rendered_camera_feature']}
+        real_features = {k: v[real_valid_mask] if isinstance(v, torch.Tensor) else [x for x, m in zip(v, real_valid_mask) if m] for k, v in features.items() if k not in ['camera_valid','rendered_camera_feature','rendered_lidar2img']}
 
         real_targets = {k: v[real_valid_mask] if isinstance(v, torch.Tensor) else [x for x, m in zip(v, real_valid_mask) if m] for k, v in targets.items()}
 
         features.pop('camera_valid')
+        # Keep rendered images paired with their own projection matrices.
         features['camera_feature'] = features.pop('rendered_camera_feature')
+        if 'rendered_lidar2img' in features:
+            features['lidar2img'] = features.pop('rendered_lidar2img')
         rendered_features = features
         rendered_targets = targets
   
@@ -424,14 +403,12 @@ class AgentLightningModule(pl.LightningModule):
             real_token_path = real_features['token_path']
             for i in range(len(real_token_path)):
                 real_feature_save_path = real_token_path[i]+'_dino_feat_real.pt'
-                #torch.save(real_dino_feats[i], real_feature_save_path)
                 save_fp16_zstd(real_dino_feats[i], real_feature_save_path)
 
         rendered_dino_feats = prediction[:batch_size]
         rendered_token_path = rendered_features['token_path']
         for i in range(len(rendered_token_path)):
             rendered_feature_save_path = rendered_token_path[i]+'_dino_feat_rendered.pt'
-            #torch.save(rendered_dino_feats[i], rendered_feature_save_path)
             save_fp16_zstd(rendered_dino_feats[i], rendered_feature_save_path)
         return 0
 
@@ -442,89 +419,31 @@ class AgentLightningModule(pl.LightningModule):
     def predict_step(self, batch: Tuple[Dict[str, Tensor], Dict[str, Tensor]], batch_idx: int):
         self.eval()
         features, targets = batch
-        # real_valid_mask: boolean tensor indicating whether the frame is valid for real images.
-        # This is needed since we also use rendered images for training.
+        # Keep only samples with valid real camera data.
         real_valid_mask = features['camera_valid']
         frame_name = features.pop('frame_name')
-        real_features = {k: v[real_valid_mask] for k, v in features.items() if k not in ['camera_valid','rendered_camera_feature']}
+        real_features = {k: v[real_valid_mask] for k, v in features.items() if k not in ['camera_valid','rendered_camera_feature','rendered_lidar2img']}
 
         features.pop('camera_valid')
+        # Keep rendered images paired with their own projection matrices.
         features['camera_feature'] = features.pop('rendered_camera_feature')
+        if 'rendered_lidar2img' in features:
+            features['lidar2img'] = features.pop('rendered_lidar2img')
 
         prediction = self.agent.forward(real_features,None,return_score=True)
         prediction['frame_name'] = frame_name
         
         return prediction
 
-    # def on_validation_epoch_end(self):
-
-    #     print('START TSNE')
-    #     import numpy as np
-    #     import matplotlib.pyplot as plt
-    #     from sklearn.manifold import TSNE
-    #     import wandb
-    #     # 1) 拼接成 (N, d)
-    #     real = np.concatenate(self.real_feat, axis=0) if len(self.real_feat) else np.empty((0, 1))
-    #     synth = np.concatenate(self.synth_feat, axis=0) if len(self.synth_feat) else np.empty((0, 1))
-
-    #     X = np.concatenate([real, synth], axis=0)
-    #     y = np.concatenate([
-    #         np.zeros(real.shape[0], dtype=int),
-    #         np.ones(synth.shape[0], dtype=int)
-    #     ], axis=0)
-
-    #     # 2) t-SNE（cosine 距离更稳）
-    #     n = X.shape[0]
-
-    #     perplexity = min(30, max(5, n // 50))
-    #     if perplexity >= n:
-    #         perplexity = max(5, n // 3)
-
-    #     tsne = TSNE(
-    #         n_components=2,
-    #         init="pca",
-    #         perplexity=perplexity,
-    #         learning_rate="auto",
-    #         n_iter=500,
-    #         metric="cosine",
-    #         random_state=42,
-    #         verbose=0,
-    #     )
-    #     X2 = tsne.fit_transform(X)
-
-    #     # 3) 画图
-    #     fig = plt.figure(figsize=(6, 6))
-    #     ax = plt.gca()
-    #     ax.scatter(X2[y == 0, 0], X2[y == 0, 1], s=6, alpha=0.65, label="Real")
-    #     ax.scatter(X2[y == 1, 0], X2[y == 1, 1], s=6, alpha=0.65, label="Rasterized")
-    #     ax.set_title(f"t-SNE: Real vs Rasterized)")
-    #     ax.set_xlabel("t-SNE 1"); ax.set_ylabel("t-SNE 2")
-    #     ax.legend(loc="best")
-    #     plt.tight_layout()
-
-    #     # 4) 用 WandB 上传
-    #     wandb.log({"tsne/real_vs_synth": wandb.Image(fig), "epoch": self.current_epoch})
-
-    #     plt.close(fig)
-
-    #     # 5) 清缓存
-    #     self.real_feat.clear()
-    #     self.synth_feat.clear()
-
-
 import numpy as np
 from sklearn.decomposition import PCA
 
 
 def visualize_dino_pca_sklearn(feats, eps=1e-8):
+    """Project DINO features to RGB with PCA.
+
+    Returns the visualization, background mask, and Otsu threshold.
     """
-    feats: (C,H,W) 的特征（np.ndarray 或 torch.Tensor），C>=3
-    返回:
-      rgb_uint8: (H,W,3) np.uint8，可视化结果
-      bg_mask  : (H,W) bool，背景为 True
-      thr      : float，Otsu 阈值（作用在 PC1 上）
-    """
-    # to numpy
     try:
         import torch
         if isinstance(feats, torch.Tensor):
@@ -535,10 +454,10 @@ def visualize_dino_pca_sklearn(feats, eps=1e-8):
     C, H, W = x.shape
     assert C >= 3, f"Need C>=3, got {C}"
 
-    X = x.reshape(C, -1).T  # (N, C)
+    X = x.reshape(C, -1).T
 
     pca = PCA(n_components=3)
-    P_all = pca.fit_transform(X)              # (N,3)
+    P_all = pca.fit_transform(X)
     pc1 = P_all[:, 0]
     thr = _otsu(pc1)
     bg = pc1 < -10e8
@@ -546,7 +465,7 @@ def visualize_dino_pca_sklearn(feats, eps=1e-8):
 
     if fg.sum() >= 3:
         X_fg = X[fg]
-        P_fg = pca.fit_transform(X_fg)      # (N_fg,3)
+        P_fg = pca.fit_transform(X_fg)
         for i in range(3):
             ch = P_fg[:, i]
             mu, sd = ch.mean(), ch.std() + eps

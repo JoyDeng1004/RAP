@@ -40,6 +40,11 @@ class Camera:
     distortion: Optional[npt.NDArray[np.float32]] = None
     real_valid: Optional[bool] = None
 
+    # Calibration for rendered images when their rig differs from the real camera.
+    render_sensor2lidar_rotation: Optional[npt.NDArray[np.float32]] = None
+    render_sensor2lidar_translation: Optional[npt.NDArray[np.float32]] = None
+    render_intrinsics: Optional[npt.NDArray[np.float32]] = None
+
 
 @dataclass
 class Cameras:
@@ -97,9 +102,16 @@ class Cameras:
                     intrinsics=camera_dict[camera_name]["cam_intrinsic"],
                     distortion=camera_dict[camera_name]["distortion"],
                     real_valid=real_valid,
+                    # Fall back to real calibration for legacy metadata.
+                    render_sensor2lidar_rotation=camera_dict[camera_name].get(
+                        "render_sensor2lidar_rotation", camera_dict[camera_name]["sensor2lidar_rotation"]),
+                    render_sensor2lidar_translation=camera_dict[camera_name].get(
+                        "render_sensor2lidar_translation", camera_dict[camera_name]["sensor2lidar_translation"]),
+                    render_intrinsics=camera_dict[camera_name].get(
+                        "render_cam_intrinsic", camera_dict[camera_name]["cam_intrinsic"]),
                 )
             else:
-                data_dict[camera_identifier] = Camera()  # empty camera
+                data_dict[camera_identifier] = Camera()
 
 
         return Cameras(
@@ -118,9 +130,7 @@ class Cameras:
 class Lidar:
     """Lidar point cloud dataclass."""
 
-    # NOTE:
-    # merged lidar point cloud as (6,n) float32 array with n points
-    # first axis: (x, y, z, intensity, ring, lidar_id), see LidarIndex
+    # Shape: (6, N) = x, y, z, intensity, ring, and lidar ID.
     lidar_pc: Optional[npt.NDArray[np.float32]] = None
 
     @staticmethod
@@ -139,12 +149,11 @@ class Lidar:
         :return: lidar point cloud dataclass
         """
 
-        # NOTE: this could be extended to load specific LiDARs in the merged pc
         if "lidar_pc" in sensor_names:
             global_lidar_path = sensor_blobs_path / lidar_path
             lidar_pc = LidarPointCloud.from_buffer(cls._load_bytes(global_lidar_path), "pcd").points
             return Lidar(lidar_pc)
-        return Lidar()  # empty lidar
+        return Lidar()
 
 
 @dataclass
@@ -155,7 +164,7 @@ class EgoStatus:
     ego_velocity: npt.NDArray[np.float32]
     ego_acceleration: npt.NDArray[np.float32]
     driving_command: npt.NDArray[np.int]
-    in_global_frame: bool = False  # False for AgentInput
+    in_global_frame: bool = False
 
 
 @dataclass
@@ -256,7 +265,7 @@ class Annotations:
 class Trajectory:
     """Trajectory dataclass in NAVSIM."""
 
-    poses: npt.NDArray[np.float32]  # local coordinates
+    poses: npt.NDArray[np.float32]  # Local coordinates.
     trajectory_sampling: TrajectorySampling = TrajectorySampling(time_horizon=4, interval_length=0.5)
 
     def __post_init__(self):
@@ -299,7 +308,6 @@ class Frame:
 class Scene:
     """Scene dataclass defining a single sample in NAVSIM."""
 
-    # Ground truth information
     scene_metadata: SceneMetadata
     map_api: AbstractMap
     frames: List[Frame]
@@ -518,7 +526,6 @@ class SceneFilter:
     max_scenes: Optional[int] = None
     log_names: Optional[List[str]] = None
     tokens: Optional[List[str]] = None
-    # TODO: expand filter options
 
     def __post_init__(self):
 
@@ -541,9 +548,7 @@ class SceneFilter:
 class SensorConfig:
     """Configuration dataclass of agent sensors for memory management."""
 
-    # Config values of sensors are either
-    # - bool: Whether to load history or not
-    # - List[int]: For loading specific history steps
+    # A boolean loads history; a list selects history steps.
     cam_f0: Union[bool, List[int]]
     cam_l0: Union[bool, List[int]]
     cam_l1: Union[bool, List[int]]
