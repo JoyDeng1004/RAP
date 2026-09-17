@@ -314,14 +314,22 @@ class CustomCollect3D(object):
 
 
 class RandomScaleImageMultiViewImage(object):
-    """Random scale the image
-    Args:
-        scales
+    """Resize multi-view images and update lidar2img using actual resize ratios.
+
+    Specify exactly one of ``size`` or a single value in ``scales``. A fixed
+    size keeps image shapes consistent for mixed-dataset batches.
     """
 
-    def __init__(self, scales=[]):
+    def __init__(self, scales=[], size=None):
+        assert (size is None) != (not scales), \
+            "scales 与 size 必须且只能给一个"
+        if size is not None:
+            assert len(size) == 2, "size 应为 (H, W)"
+            self.size = (int(size[0]), int(size[1]))
+        else:
+            assert len(scales) == 1
+            self.size = None
         self.scales = scales
-        assert len(self.scales) == 1
 
     def __call__(self, results):
         """Call function to pad images, masks, semantic segmentation maps.
@@ -330,17 +338,27 @@ class RandomScaleImageMultiViewImage(object):
         Returns:
             dict: Updated result dict.
         """
-        rand_ind = np.random.permutation(range(len(self.scales)))[0]
-        rand_scale = self.scales[rand_ind]
+        if self.size is None:
+            rand_ind = np.random.permutation(range(len(self.scales)))[0]
+            rand_scale = self.scales[rand_ind]
 
-        y_size = [int(img.shape[0] * rand_scale) for img in results['img']]
-        x_size = [int(img.shape[1] * rand_scale) for img in results['img']]
-        scale_factor = np.eye(4)
-        scale_factor[0, 0] *= rand_scale
-        scale_factor[1, 1] *= rand_scale
-        results['img'] = [mmcv.imresize(img, (x_size[idx], y_size[idx]), return_scale=False) for idx, img in
-                          enumerate(results['img'])]
-        lidar2img = [scale_factor @ l2i for l2i in results['lidar2img']]
+        imgs, lidar2img = [], []
+        for img, l2i in zip(results['img'], results['lidar2img']):
+            h, w = img.shape[:2]
+            if self.size is not None:
+                y_size, x_size = self.size
+            else:
+                y_size, x_size = int(h * rand_scale), int(w * rand_scale)
+
+            # Use actual post-rounding resize ratios to match mmcv.imresize.
+            scale_factor = np.eye(4)
+            scale_factor[0, 0] = x_size / w
+            scale_factor[1, 1] = y_size / h
+
+            imgs.append(mmcv.imresize(img, (x_size, y_size), return_scale=False))
+            lidar2img.append(scale_factor @ l2i)
+
+        results['img'] = imgs
         results['lidar2img'] = lidar2img
         results['img_shape'] = [img.shape for img in results['img']]
         results['ori_shape'] = [img.shape for img in results['img']]
@@ -349,7 +367,10 @@ class RandomScaleImageMultiViewImage(object):
 
     def __repr__(self):
         repr_str = self.__class__.__name__
-        repr_str += f'(size={self.scales}, '
+        if self.size is not None:
+            repr_str += f'(size={self.size}, '
+        else:
+            repr_str += f'(scales={self.scales}, '
         return repr_str
 
 
