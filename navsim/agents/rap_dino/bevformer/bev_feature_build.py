@@ -9,7 +9,8 @@ PhotoMetricDistortionMultiViewImage = PhotoMetricDistortionMultiViewImage(
     saturation_range=(0.5, 1.5),
     hue_delta=18)
 NormalizeMultiviewImage = NormalizeMultiviewImage(mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=False)
-RandomScaleImageMultiViewImage = RandomScaleImageMultiViewImage(scales=[0.4])
+# Use a common image shape for cross-dataset batches.
+RandomScaleImageMultiViewImage = RandomScaleImageMultiViewImage(size=(432, 768))
 PadMultiViewImage = PadMultiViewImage(size=None, size_divisor=32, pad_val=0)
 
 
@@ -77,15 +78,15 @@ def _get_bev_feature( agent_input, training: bool=False):
     #     image_result = PhotoMetricDistortionMultiViewImage(image_result)
     image_result = synthetic_image_result
     image_result = NormalizeMultiviewImage(image_result)
-    image_result = RandomScaleImageMultiViewImage(image_result)  # 432,768
-    image_result = PadMultiViewImage(image_result)  # 448,768
+    image_result = RandomScaleImageMultiViewImage(image_result)
+    image_result = PadMultiViewImage(image_result)
     imgs = [img.transpose(2, 0, 1) for img in image_result['img']]
     synthetic_camera_feature = torch.tensor(np.ascontiguousarray(np.stack(imgs, axis=0)))
 
     image_result = real_image_result
     image_result = NormalizeMultiviewImage(image_result)
-    image_result = RandomScaleImageMultiViewImage(image_result)  # 432,768
-    image_result = PadMultiViewImage(image_result)  # 448,768
+    image_result = RandomScaleImageMultiViewImage(image_result)
+    image_result = PadMultiViewImage(image_result)
     imgs = [img.transpose(2, 0, 1) for img in image_result['img']]
     real_camera_feature = torch.tensor(np.ascontiguousarray(np.stack(imgs, axis=0)))
 
