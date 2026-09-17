@@ -1,7 +1,0 @@
-{"dataset":"dataset_norm","files":64,"readable_files":64,"unreadable_files":0,"records":51867,"unique_tokens":51867,"duplicate_token_occurrences":0,"unique_logs":64,"missing_token_records":0,"missing_log_records":0,"file_log_mismatch_count":0,"status":"CONTAMINATED"}
-{"split":"navtrain","official_logs":1192,"official_tokens":103288,"dataset_log_intersection":52,"dataset_token_intersection":6104}
-{"split":"navtest","official_logs":136,"official_tokens":12146,"dataset_log_intersection":10,"dataset_token_intersection":1365,"status":"CONTAMINATED"}
-{"split":"navmini","official_logs":62,"official_tokens":396,"dataset_log_intersection":62,"dataset_token_intersection":396}
-{"split":"warmup_test_e2e","official_logs":62,"official_tokens":563,"dataset_log_intersection":62,"dataset_token_intersection":563,"status":"EVAL_SIDE_OVERLAP"}
-{"split":"navhard_two_stage","status":"MISSING_SPLIT_DEFINITION","dataset_log_intersection":null,"dataset_token_intersection":null}
-{"outside_all_present_official_splits":{"logs":2,"tokens":44389},"sample_unknown_logs":["2021.06.23.20.43.31_veh-16_03607_04007","2021.08.24.13.12.55_veh-45_00386_00472"]}
