@@ -1,0 +1,42 @@
+#!/bin/bash
+mutagen sync create \
+  --name=rap-sync \
+  --sync-mode=two-way-resolved \
+  --ignore=".cache" \
+  --ignore=".nv" \
+  --ignore=".config" \
+  --ignore="/exp/" \
+  --ignore="*.pyc" \
+  --ignore="__pycache__/" \
+  --ignore="*.egg-info" \
+  --ignore=".venv*/" \
+  --ignore="/docs/slides/.venv/" \
+  --ignore="/datasets/" \
+  --ignore="/docs/figs/" \
+  --ignore="/navsim_one_scene/" \
+  --ignore="data/" \
+  --ignore="/dataset_nuscenes/" \
+  --ignore="dataset_aug/" \
+  --ignore="dataset_norm/" \
+  --ignore="dataset_perturbed/" \
+  --ignore="train_metric_cache/" \
+  --ignore="metric_cache" \
+  --ignore="cache" \
+  --ignore="ckpts/" \
+  --ignore="wandb" \
+  --ignore="*.jpg" \
+  --ignore="*.png" \
+  --ignore="*.ckpt" \
+  --ignore="MySubmission" \
+  --ignore="*.pkl" \
+  --ignore="outputs/" \
+  --ignore=".agents/" \
+  --ignore=".codex/" \
+  --ignore="nuplan-devkit/" \
+  --ignore="/process_data/scenarionet/" \
+  --ignore="*.tar" \
+  --ignore="*.zip" \
+  --ignore="*.log" \
+  --watch-polling-interval=60 \
+  /Users/joy/pythonProject/RAP \
+  tsubame:/gs/bs/tga-RLA/qdeng/RAP
