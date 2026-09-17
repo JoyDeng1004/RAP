@@ -16,6 +16,7 @@ data/
 dataset_aug/
 dataset_norm/
 dataset_perturbed/
+dataset_nuscenes/
 datasets/
 metric_cache
 cache
