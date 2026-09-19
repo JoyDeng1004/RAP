@@ -1,0 +1,6 @@
+# nuScenes v1.0-trainval configuration for NAVSIM-rendered sensors.
+# Set OPENSCENE_DATA_ROOT to the nuScenes dataset root; data_split selects all paths.
+defaults:
+  - scene_filter: nuscenes_all
+
+data_split: nuscenes_trainval
