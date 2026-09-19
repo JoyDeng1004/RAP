@@ -1,0 +1,35 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N rap-raster-nusc
+#$ -l cpu_16=1
+#$ -l h_rt=4:00:00
+#$ -j y
+#$ -cwd
+
+# UGE array-job wrapper for nuScenes rasterization (rasterize_nuscenes.sh).
+# The nuPlan counterpart is rasterize_nuplan.qsub.
+# The array range must match the shard-count argument.
+# Set THREADS to the allocated CPU count.
+#
+# 850 scenes take roughly 25 minutes at THREADS=32, so a single non-array job
+# (shard 1 of 1) is usually the right call; h_rt is sized for that plus slack.
+
+set -euo pipefail
+
+REPO=/gs/bs/tga-RLA/qdeng/RAP
+cd "$REPO"
+
+MODE="${1:?用法: <shard|pilot> <rig> <总片数或试渲染scene数>}"
+RIG="${2:?}"
+ARG="${3:?}"
+
+# UGE sets SGE_TASK_ID to the literal string "undefined" outside array jobs,
+# which ${VAR:-1} does not catch.
+TASK_ID="${SGE_TASK_ID:-1}"
+case "$TASK_ID" in ''|*[!0-9]*) TASK_ID=1 ;; esac
+
+case "$MODE" in
+  shard) exec bash process_data/rasterize_nuscenes.sh run   "$RIG" "$TASK_ID" "$ARG" ;;
+  pilot) exec bash process_data/rasterize_nuscenes.sh pilot "$RIG" "$ARG" ;;
+  *) echo "未知模式: $MODE（可选 shard|pilot）" >&2; exit 1 ;;
+esac
