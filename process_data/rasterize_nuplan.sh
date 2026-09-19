@@ -1,21 +1,23 @@
 #!/bin/bash
-# RAP rasterization launcher for TSUBAME / UGE.
+# RAP rasterization launcher for nuPlan sources (TSUBAME / UGE).
+# The nuScenes counterpart is rasterize_nuscenes.sh. This script always renders
+# the NAVSIM canonical rig, so its second argument is a stage, not a rig.
 #
 # Usage:
-#   ./rasterize.sh plan <stage> [shard-count]
-#   ./rasterize.sh run <stage> <shard-index> <shard-count>
-#   ./rasterize.sh pilot <stage> [log-count]
-#   ./rasterize.sh progress <stage>
+#   ./rasterize_nuplan.sh plan <stage> [shard-count]
+#   ./rasterize_nuplan.sh run <stage> <shard-index> <shard-count>
+#   ./rasterize_nuplan.sh pilot <stage> [log-count]
+#   ./rasterize_nuplan.sh progress <stage>
 # Stages: ego, perturbed, aug.
-# Environment overrides: NUPLAN_PATH, NUPLAN_MAPS_ROOT, DATA_ROOT,
-# DATA_ROOT_AUG, DATA_ROOT_PERTURBED, WORK_ROOT, THREADS, and SPLIT.
+# Overrides: REPO, SPLIT, NUPLAN_PATH, NUPLAN_DB_PATH, NUPLAN_MAPS_ROOT,
+# NUPLAN_MAP_VERSION, REAL_SENSOR_PATH, DATA_ROOT, DATA_ROOT_PERTURBED,
+# DATA_ROOT_AUG, WORK_ROOT, THREADS, PYTHON_BIN.
 
 set -euo pipefail
 
 REPO="${REPO:-/gs/bs/tga-RLA/qdeng/RAP}"
 SPLIT="${SPLIT:-trainval}"
 
-# Input paths
 NUPLAN_PATH="${NUPLAN_PATH:-/gs/bs/tga-RLA/qdeng/nuplan_dataset/nuplan-v1.1}"
 NUPLAN_DB_PATH="${NUPLAN_DB_PATH:-$NUPLAN_PATH/splits/$SPLIT}"
 NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/gs/bs/tga-RLA/qdeng/RAP/datasets/navsim/maps}"
@@ -25,7 +27,6 @@ NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
 # Keep this separate from --nuplan-sensor-path, which determines raster output.
 REAL_SENSOR_PATH="${REAL_SENSOR_PATH:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset/sensor_blobs/$SPLIT}"
 
-# Per-stage data roots
 DATA_ROOT="${DATA_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
 DATA_ROOT_PERTURBED="${DATA_ROOT_PERTURBED:-/gs/bs/tga-RLA/qdeng/RAP/dataset_perturbed}"
 DATA_ROOT_AUG="${DATA_ROOT_AUG:-/gs/bs/tga-RLA/qdeng/RAP/dataset_aug}"
@@ -214,5 +215,5 @@ case "${1:-}" in
   run)      shift; cmd_run "$@" ;;
   pilot)    shift; cmd_pilot "$@" ;;
   progress) shift; cmd_progress "$@" ;;
-  *) sed -n '2,50p' "$0"; exit 1 ;;
+  *) sed -n '2,14p' "$0"; exit 1 ;;
 esac

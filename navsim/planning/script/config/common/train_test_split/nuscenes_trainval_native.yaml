@@ -1,0 +1,26 @@
+# nuScenes trainval rasterized with the native rig (nuScenes calibrated_sensor
+# intrinsics and extrinsics). The sibling nuscenes_trainval.yaml is the same
+# scenes rendered with the NAVSIM canonical rig; camera-mode is the only
+# difference. Generate with: rasterize_nuscenes.sh run native 1 1
+#
+# data_split determines three paths (default_evaluation.yaml:3-4 +
+# dataclasses.py:77):
+#   ${OPENSCENE_DATA_ROOT}/navsim_logs/nuscenes_trainval_native/
+#   ${OPENSCENE_DATA_ROOT}/sensor_blobs/nuscenes_trainval_native/
+#   ${OPENSCENE_DATA_ROOT}/rendered_sensor_blobs/nuscenes_trainval_native/
+# The third is derived from the second by str.replace and is not configurable.
+#
+# sensor_blobs points at the same nuScenes root as nuscenes_trainval (two
+# symlinks, no copied data); only the pkl and raster paths diverge. Switch rigs
+# by switching this file, not OPENSCENE_DATA_ROOT.
+#
+# Image size differs from the navsim rig: the native canvas is 1600x940, which
+# dataclasses.py:85 crops to 1600x900 — the size of the real nuScenes image.
+# The navsim rig crops to 1920x1080. Code consuming both must handle both.
+#
+# scene_filter is shared with nuscenes_trainval: it filters scene names only
+# and is rig-independent.
+defaults:
+  - scene_filter: nuscenes_all
+
+data_split: nuscenes_trainval_native
