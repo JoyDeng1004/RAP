@@ -27,6 +27,9 @@ NAVSIM_INTERVAL_LENGTH: float = 0.5
 OPENSCENE_DATA_ROOT = os.environ.get("OPENSCENE_DATA_ROOT")
 NUPLAN_MAPS_ROOT = os.environ.get("NUPLAN_MAPS_ROOT")
 
+# Map names seen outside nuPlan's map set, warned about once each.
+_MAP_NAMES_WITHOUT_NUPLAN_MAP: set = set()
+
 
 @dataclass
 class Camera:
@@ -309,7 +312,7 @@ class Scene:
     """Scene dataclass defining a single sample in NAVSIM."""
 
     scene_metadata: SceneMetadata
-    map_api: AbstractMap
+    map_api: Optional[AbstractMap]  # None when the log's map has no nuPlan equivalent
     frames: List[Frame]
 
     def get_future_trajectory(self, num_trajectory_frames: Optional[int] = None) -> Trajectory:
@@ -410,9 +413,21 @@ class Scene:
         return AgentInput(ego_statuses, cameras, lidars)
 
     @classmethod
-    def _build_map_api(cls, map_name: str) -> AbstractMap:
-        """Helper classmethod to load map api from name."""
-        assert map_name in MAP_LOCATIONS, f"The map name {map_name} is invalid, must be in {MAP_LOCATIONS}"
+    def _build_map_api(cls, map_name: str) -> Optional[AbstractMap]:
+        """Helper classmethod to load map api from name.
+
+        nuScenes logs carry nuScenes map names, which have no nuPlan map database
+        and no valid rename into one. Return None for those so the scene still
+        loads; consumers that need a map must check before using it.
+        """
+        if map_name not in MAP_LOCATIONS:
+            if map_name not in _MAP_NAMES_WITHOUT_NUPLAN_MAP:
+                _MAP_NAMES_WITHOUT_NUPLAN_MAP.add(map_name)
+                print(
+                    f"[Scene] No nuPlan map for '{map_name}' (known: {sorted(MAP_LOCATIONS)}). "
+                    f"scene.map_api is None for these scenes."
+                )
+            return None
         return get_maps_api(NUPLAN_MAPS_ROOT, "nuplan-maps-v1.0", map_name)
 
     @classmethod
