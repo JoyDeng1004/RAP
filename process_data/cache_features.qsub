@@ -1,0 +1,38 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N rap-cache
+#$ -j y
+#$ -cwd
+
+# UGE array-job wrapper for cache_features.sh.
+#
+# Set cpu_* and h_rt on the qsub command line. qsub merges resource lists, so
+# defining cpu_* here can create conflicting resource requests.
+#
+# Match the array range to the shard count:
+#   qsub -g <group> -t 1-8  -l cpu_4=1  -l h_rt=4:00:00 process_data/cache_features.qsub shard C 8
+#   qsub -g <group> -t 1-8  -l cpu_4=1  -l h_rt=4:00:00 process_data/cache_features.qsub shard A 8
+#   qsub -g <group> -t 1-24 -l cpu_16=1 -l h_rt=8:00:00 process_data/cache_features.qsub shard D 24
+#   qsub -g <group>         -l cpu_4=1  -l h_rt=1:00:00 process_data/cache_features.qsub pilot C 2
+#
+# Caching is single-process and memory-bound. Use cpu_16 for large nuPlan
+# shards; 606 logs per shard exceeded cpu_4 memory. cpu_4 is enough for nuScenes.
+
+set -euo pipefail
+
+REPO=/gs/bs/tga-RLA/qdeng/RAP
+cd "$REPO"
+
+MODE="${1:?用法: <shard|pilot> <target> <总片数或试缓存log数>}"
+TARGET="${2:?}"
+ARG="${3:?}"
+
+# UGE sets SGE_TASK_ID to "undefined" outside array jobs.
+TASK_ID="${SGE_TASK_ID:-1}"
+case "$TASK_ID" in ''|*[!0-9]*) TASK_ID=1 ;; esac
+
+case "$MODE" in
+  shard) exec bash process_data/cache_features.sh run   "$TARGET" "$TASK_ID" "$ARG" ;;
+  pilot) exec bash process_data/cache_features.sh pilot "$TARGET" "$ARG" ;;
+  *) echo "未知模式: $MODE（可选 shard|pilot）" >&2; exit 1 ;;
+esac
