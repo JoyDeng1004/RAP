@@ -1,3 +1,8 @@
+# @package _global_
+# Moved here from config/training/default_train_val_test_log_split.yaml. As a
+# config-group option the keys would default to the train_val_test_log_split
+# package, but run_training.py reads cfg.train_logs / cfg.val_logs at the top
+# level, so the package has to stay global.
 train_logs:
   - 2021.05.12.19.36.12_veh-35_00005_00204
   - 2021.05.12.19.36.12_veh-35_00215_00405
