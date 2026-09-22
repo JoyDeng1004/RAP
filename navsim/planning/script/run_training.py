@@ -112,6 +112,9 @@ def main(cfg: DictConfig) -> None:
 
         cached_logs = [log_name.name.replace(".pkl", "") for log_name in Path(cfg.cache_path).iterdir()]
         train_logs = [log_name for log_name in cached_logs if log_name not in cfg.val_logs]
+        if cfg.get("restrict_train_logs", False):
+            allowed = set(cfg.train_logs)
+            train_logs = [log_name for log_name in train_logs if log_name in allowed]
         val_logs = [log_name for log_name in cached_logs if log_name in cfg.val_logs]
 
         if 'waymo' in cfg.dataset['_target_']:
