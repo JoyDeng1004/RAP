@@ -18,8 +18,11 @@ defaults:
 split: trainval
 waymo_raw_path: null
 cache_path: ${oc.env:NAVSIM_EXP_ROOT}/training_cache
-cache_path_perturbed: ${oc.env:NAVSIM_EXP_ROOT}/training_cache_perturbed
-cache_path_others: ${oc.env:NAVSIM_EXP_ROOT}/training_cache_others
+cache_path_perturbed: null
+cache_path_others: null
+val_cache_path: null  # Validation cache; null reuses cache_path.
+train_score_mask: true  # false for training caches without a metric cache (e.g. nuScenes).
+val_score_mask: true  # true requires val_cache_path to have a metric cache.
 use_cache_without_dataset: false  # Load cached samples and ignore scene filters.
 force_cache_computation: true
 # Few-shot: intersect the cached training logs with train_logs instead of using

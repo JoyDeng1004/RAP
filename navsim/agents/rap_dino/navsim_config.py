@@ -59,6 +59,10 @@ class RAPConfig:
     pred_l1_weight: int = 0.1
     pred_area_weight: int = 2
     prev_weight: int = 0.1
+    # Trajectory-loss weight for samples without a metric cache (score_mask=False).
+    # Keep 0.1 to reproduce RAP; set 1.0 to separate the recovery/render effect
+    # from the loss down-weighting it currently comes bundled with.
+    unscored_traj_weight: float = 0.1
     agent_class_weight: float = 1.0
     agent_box_weight: float = 0.1
     bev_semantic_weight: float = 1.0

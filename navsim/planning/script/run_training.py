@@ -110,12 +110,17 @@ def main(cfg: DictConfig) -> None:
             cfg.cache_path is not None
         ), "cache_path must be provided when using cached data without building SceneLoader"
 
+        val_log_set = set(cfg.val_logs)
         cached_logs = [log_name.name.replace(".pkl", "") for log_name in Path(cfg.cache_path).iterdir()]
-        train_logs = [log_name for log_name in cached_logs if log_name not in cfg.val_logs]
+        train_logs = [log_name for log_name in cached_logs if log_name not in val_log_set]
         if cfg.get("restrict_train_logs", False):
             allowed = set(cfg.train_logs)
             train_logs = [log_name for log_name in train_logs if log_name in allowed]
-        val_logs = [log_name for log_name in cached_logs if log_name in cfg.val_logs]
+
+        # A separate validation cache keeps val/score comparable across datasets.
+        val_cache_path = cfg.get("val_cache_path") or cfg.cache_path
+        val_cached_logs = [log_name.name.replace(".pkl", "") for log_name in Path(val_cache_path).iterdir()]
+        val_logs = [log_name for log_name in val_cached_logs if log_name in val_log_set]
 
         if 'waymo' in cfg.dataset['_target_']:
             train_data = WaymoCacheOnlyDataset(
@@ -135,41 +140,59 @@ def main(cfg: DictConfig) -> None:
             # train_data = Subset(val_data, indices)
             # val_data = Subset(val_data, the_rest)
         else:
+            if not train_logs:
+                raise ValueError(
+                    f"No training logs in {cfg.cache_path}. With restrict_train_logs=true the "
+                    "cache must contain logs listed in train_logs (set it false to train on a "
+                    "cache from another dataset, e.g. nuScenes)."
+                )
+            if not val_logs:
+                raise ValueError(
+                    f"No validation logs from val_logs found in {val_cache_path}. "
+                    "Point val_cache_path at the cache that holds them."
+                )
+
             train_data = CacheOnlyDataset(
                 cache_path=cfg.cache_path,
                 feature_builders=agent.get_feature_builders(),
                 target_builders=agent.get_target_builders(),
-            log_names=train_logs,
-        )
+                log_names=train_logs,
+            )
+            # False for sources without a metric cache (e.g. nuScenes): rap_loss then
+            # skips their scorer losses and down-weights their trajectory loss.
+            train_data.score_mask = cfg.get("train_score_mask", True)
             val_data = CacheOnlyDataset(
-                cache_path=cfg.cache_path,
+                cache_path=val_cache_path,
                 feature_builders=agent.get_feature_builders(),
                 target_builders=agent.get_target_builders(),
                 log_names=val_logs,
                 split='val'
             )
+            val_data.score_mask = cfg.get("val_score_mask", True)
 
-            train_data_perturbed = CacheOnlyDataset(
-                cache_path=cfg.cache_path_perturbed,
-                feature_builders=agent.get_feature_builders(),
-                target_builders=agent.get_target_builders())
-            N = len(train_data_perturbed)
-            indices = random.sample(range(N), int(0.1*N))
-            print(f'len(perturbed): {len(indices)}')
-            train_data_perturbed = Subset(train_data_perturbed, indices)
+            train_parts = [("main", train_data)]
+            if cfg.get("cache_path_perturbed"):
+                train_data_perturbed = CacheOnlyDataset(
+                    cache_path=cfg.cache_path_perturbed,
+                    feature_builders=agent.get_feature_builders(),
+                    target_builders=agent.get_target_builders())
+                N = len(train_data_perturbed)
+                indices = random.sample(range(N), int(0.1*N))
+                train_parts.append(("perturbed", Subset(train_data_perturbed, indices)))
 
-            train_data_others = CacheOnlyDataset(
-                cache_path=cfg.cache_path_others,
-                feature_builders=agent.get_feature_builders(),
-                target_builders=agent.get_target_builders())
-                
-            train_data_others.score_mask=False
-            N = len(train_data_others)
-            indices = random.sample(range(N), int(0.05*N))
-            print(f'len(others): {len(indices)}')
-            train_data_others = Subset(train_data_others, indices)
+            if cfg.get("cache_path_others"):
+                train_data_others = CacheOnlyDataset(
+                    cache_path=cfg.cache_path_others,
+                    feature_builders=agent.get_feature_builders(),
+                    target_builders=agent.get_target_builders())
+                train_data_others.score_mask=False
+                N = len(train_data_others)
+                indices = random.sample(range(N), int(0.05*N))
+                train_parts.append(("others", Subset(train_data_others, indices)))
 
-            train_data = ConcatDataset([train_data, train_data_perturbed, train_data_others])
+            logger.info("Training sources: %s", ", ".join(f"{name}={len(ds)}" for name, ds in train_parts))
+            logger.info("Validation: %d samples from %s", len(val_data), val_cache_path)
+            train_data = ConcatDataset([ds for _, ds in train_parts])
 
     else:
         logger.info("Building SceneLoader")
