@@ -104,6 +104,10 @@ class RAPModel(nn.Module):
         self.scorer = Scorer(config)
         self.domain_classifier = DomainClassifier(config.tf_d_model)
         self.lambda_scheduler = LambdaScheduler(gamma=10.0)
+        # Set per step by AgentLightningModule._step_distill. The defaults keep
+        # forward usable in plain training (_step) and at inference.
+        self.progress = 0.0
+        self.batch_size = None
         self.b2d=config.b2d
 
     def forward(self, features: Dict[str, torch.Tensor],targets: Dict[str, torch.Tensor],return_score=False) -> Dict[str, torch.Tensor]:
@@ -144,13 +148,17 @@ class RAPModel(nn.Module):
         output["agent_labels"]=agent_labels
         output["bev_feature"]=image_feature[0].permute(2,0,1,3)
 
-        lambda_ = self.lambda_scheduler(self.progress)
-        feat = image_feature[0][[1]]   
-        feat_grad = feat[:,:,:self.batch_size].detach()          
-        feat_no_grad = feat[:,:,self.batch_size:]   
-        mixed_feat = torch.cat([feat_grad, feat_no_grad], dim=2)
-        domain_logits = self.domain_classifier(mixed_feat, lambd=lambda_)  # (B,)
-        output["domain_logits"] = domain_logits
+        # The domain classifier needs the [rendered; real] batch that only
+        # _step_distill builds during training; skip it in _step and at inference.
+        if self.training and self._config.distill_feature and self.batch_size is not None:
+            lambda_ = self.lambda_scheduler(self.progress)
+            feat = image_feature[0][[1]]
+            feat_grad = feat[:,:,:self.batch_size].detach()
+            feat_no_grad = feat[:,:,self.batch_size:]
+            mixed_feat = torch.cat([feat_grad, feat_no_grad], dim=2)
+            output["domain_logits"] = self.domain_classifier(mixed_feat, lambd=lambda_)
+        else:
+            output["domain_logits"] = None
 
         if pred_logit2 is not None:
             pdm_score=(torch.sigmoid(pred_logit)+torch.sigmoid(pred_logit2))[:,:,-1]/2

@@ -493,7 +493,7 @@ class RAPAgent(AbstractAgent):
                 1)
             # weight min_loss by score mask
             weight = torch.ones_like(min_loss, dtype=torch.float32,device=min_loss.device)
-            weight[~score_mask] = 0.1
+            weight[~score_mask] = config.unscored_traj_weight
             min_loss = (min_loss * weight).mean()
             
             inter_loss = self.diversity_loss(proposals_i)
