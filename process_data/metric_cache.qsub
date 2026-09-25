@@ -1,0 +1,80 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N rap-metric-cache
+#$ -j y
+#$ -cwd
+
+# UGE wrapper for train_metric_cache generation (run_train_metric_caching.py).
+#
+# Set cpu_* and h_rt on the qsub command line. qsub merges resource lists, so
+# defining cpu_* here can create conflicting resource requests.
+#
+#   # one node, whole paired_1192 split (1,192 logs / 103,173 tokens)
+#   qsub -g <group> -l cpu_16=1 -l h_rt=24:00:00 process_data/metric_cache.qsub single 12
+#
+#   # array job over pre-generated shards; see the plan snippet in the repo notes
+#   qsub -g <group> -t 1-8 -l cpu_16=1 -l h_rt=8:00:00 process_data/metric_cache.qsub shard 8 12
+#
+# Each process loads its own nuPlan map, so workers are memory-bound rather than
+# CPU-bound. Keep workers below the allocated core count on cpu_16.
+#
+# Shard mode writes one metadata CSV per task (NODE_RANK). MetricCacheLoader
+# reads a single CSV, so merge them before training.
+#
+# Overrides: REPO, CACHE_PATH, PYTHON_BIN, NAVSIM_EXP_ROOT, NUPLAN_MAPS_ROOT,
+#            OPENSCENE_DATA_ROOT, SPLIT_PREFIX.
+
+set -euo pipefail
+
+REPO="${REPO:-/gs/bs/tga-RLA/qdeng/RAP}"
+cd "$REPO"
+
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-$REPO/exp}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-$REPO/datasets/navsim/maps}"
+export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
+
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+CACHE_PATH="${CACHE_PATH:-$REPO/train_metric_cache}"
+SPLIT_PREFIX="${SPLIT_PREFIX:-paired}"
+
+MODE="${1:?用法: single <workers> | shard <总片数> <workers>}"
+
+# UGE sets SGE_TASK_ID to "undefined" outside array jobs.
+TASK_ID="${SGE_TASK_ID:-1}"
+case "$TASK_ID" in ''|*[!0-9]*) TASK_ID=1 ;; esac
+
+HYDRA_OPTS=()
+
+case "$MODE" in
+  single)
+    WORKERS="${2:-12}"
+    SPLIT="${SPLIT_PREFIX}_full"
+    export NODE_RANK=0
+    ;;
+  shard)
+    TOTAL="${2:?缺少总片数}"
+    WORKERS="${3:-12}"
+    SPLIT="${SPLIT_PREFIX}_s${TASK_ID}of${TOTAL}"
+    export NODE_RANK="$TASK_ID"
+    # Give each task its own hydra run dir so concurrent tasks do not race.
+    HYDRA_DIR="$NAVSIM_EXP_ROOT/metric_cache_logs/${TOTAL}_${TASK_ID}"
+    mkdir -p "$HYDRA_DIR"
+    HYDRA_OPTS=("hydra.run.dir=$HYDRA_DIR" "hydra.output_subdir=$HYDRA_DIR/code/hydra")
+    ;;
+  *)
+    echo "未知模式: $MODE（可选 single|shard）" >&2
+    exit 1
+    ;;
+esac
+
+echo "[metric-cache] split=$SPLIT workers=$WORKERS NODE_RANK=$NODE_RANK cache=$CACHE_PATH"
+
+exec "$PYTHON_BIN" navsim/planning/script/run_train_metric_caching.py \
+  train_test_split="$SPLIT" \
+  cache.cache_path="$CACHE_PATH" \
+  cache.force_feature_computation=false \
+  worker=single_machine_thread_pool \
+  worker.use_process_pool=true \
+  worker.max_workers="$WORKERS" \
+  "${HYDRA_OPTS[@]}"
