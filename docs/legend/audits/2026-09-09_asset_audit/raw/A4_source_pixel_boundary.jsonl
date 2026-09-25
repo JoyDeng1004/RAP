@@ -1,0 +1,3 @@
+{"file":"tools/render_nuscenes_camera_cross.py","git_status":"A staged, uncommitted","sha256":"e3220c8cbbd91a3aba6bb240c71e34c41b700aeb39d64907e5b8f21a4198a72d","reads_source_calibration":true,"calibration_evidence":["calibrated_sensor","sensor","camera_intrinsic","translation","rotation"],"reads_source_rgb":true,"rgb_evidence":["native_sd[filename]","cv2.imread","shutil.copy2"],"render_rigs":["NAVSIM CAM_F0 / C_d","nuScenes native CAM_FRONT / C_s"],"protocol":"P2","allowed_for_P1_F1":false,"status":"BLOCKED"}
+{"path":"tools/canonical_bev","exists":false,"status":"BLOCKED"}
+{"path":"outputs/poster_pairs/nuscenes_cross_camera","exists":false,"artifact_protocol":null,"status":"NO_ARTIFACT"}
