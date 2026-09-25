@@ -1,0 +1,4 @@
+defaults:
+  - scene_filter: paired_s6of8
+
+data_split: trainval
