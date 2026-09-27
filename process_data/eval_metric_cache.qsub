@@ -1,0 +1,68 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N rap-eval-metric-cache
+#$ -j y
+#$ -cwd
+
+# UGE wrapper for NAVSIM v1 evaluation metric cache (run_metric_caching.py).
+#
+# Set cpu_* and h_rt on the qsub command line, not here.
+#
+#   qsub -g <group> -l cpu_16=1 -l h_rt=24:00:00 process_data/eval_metric_cache.qsub [split] [workers]
+#
+# split defaults to navtest (136 logs / 12,146 tokens, data_split=test).
+# The metadata CSV is written only at the very end; if h_rt kills the job the
+# .pkl files survive but the index is lost, so leave generous h_rt.
+# Existing pkls are skipped (force_feature_computation=false), so resubmitting
+# after a kill resumes and the final CSV still lists every token.
+#
+# Measured 2026-09-26 (job 8791483, 12 workers, cpu_16): ~1,140 token/h,
+# maxvmem ~100G; navtest needs ~11 h. A 30-token sequential pilot projected
+# ~7x faster, so don't size h_rt from single-process pilots.
+#
+# default_metric_caching lists default_evaluation after _self_, so its
+# output_dir (${NAVSIM_EXP_ROOT}/${experiment_name}/...) wins and needs
+# experiment_name. Pass output_dir explicitly to keep hydra logs out of the
+# cache's metadata/ dir, which MetricCacheLoader scans for the CSV.
+#
+# Overrides: REPO, CACHE_PATH, LOG_DIR, PYTHON_BIN, NAVSIM_EXP_ROOT,
+#            NUPLAN_MAPS_ROOT, OPENSCENE_DATA_ROOT.
+
+set -euo pipefail
+
+REPO="${REPO:-/gs/bs/tga-RLA/qdeng/RAP}"
+cd "$REPO"
+
+SPLIT="${1:-navtest}"
+WORKERS="${2:-12}"
+
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-$REPO/exp}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-$OPENSCENE_DATA_ROOT/maps}"
+export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
+export NODE_RANK=0
+
+# One BLAS/OpenMP thread per worker process; otherwise each of the WORKERS
+# processes may spawn one thread per visible core and oversubscribe cpu_16.
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+CACHE_PATH="${CACHE_PATH:-$REPO/metric_cache_v1_${SPLIT}}"
+LOG_DIR="${LOG_DIR:-$NAVSIM_EXP_ROOT/metric_cache_logs/v1_${SPLIT}}"
+mkdir -p "$LOG_DIR"
+
+for d in "$OPENSCENE_DATA_ROOT/navsim_logs" "$NUPLAN_MAPS_ROOT/$NUPLAN_MAP_VERSION"; do
+  [ -d "$d" ] || { echo "缺少目录: $d" >&2; exit 1; }
+done
+
+echo "[eval-metric-cache] split=$SPLIT workers=$WORKERS cache=$CACHE_PATH logs=$LOG_DIR"
+
+exec "$PYTHON_BIN" navsim/planning/script/run_metric_caching.py \
+  train_test_split="$SPLIT" \
+  cache.cache_path="$CACHE_PATH" \
+  cache.force_feature_computation=false \
+  experiment_name="metric_cache_v1_${SPLIT}" \
+  output_dir="$LOG_DIR" \
+  worker=single_machine_thread_pool \
+  worker.use_process_pool=true \
+  worker.max_workers="$WORKERS"

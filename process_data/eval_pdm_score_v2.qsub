@@ -1,0 +1,96 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N rap-eval-pdm-score-v2
+#$ -j y
+#$ -cwd
+
+# UGE wrapper for NAVSIM v2 EPDMS scoring with the upstream v2 devkit
+# ($NAVSIM_DEVKIT_ROOT), against a metric cache built by eval_metric_cache_v2.qsub.
+#
+# Set cpu_* and h_rt on the qsub command line, not here.
+#
+#   qsub -g <group> -l cpu_16=1 -l h_rt=6:00:00 -v CACHE_PATH=<cache> process_data/eval_pdm_score_v2.qsub [split] [workers] [agent]
+#
+# split: navtest → run_pdm_score_one_stage.py; navhard_two_stage → run_pdm_score.py
+#        (two-stage aggregation). Override the entry with ENTRY=<script name>.
+# agent: hydra agent config name, default constant_velocity_agent (no model,
+#        deterministic; used to prove the scorer consumes the cache).
+#
+# DRY_RUN=1 bash process_data/eval_pdm_score_v2.qsub ...  runs on the current
+# node with --cfg job: composes and prints the config, scores nothing.
+#
+# Same pitfalls as the caching wrapper: v2 must be on PYTHONPATH (the rap env
+# resolves navsim to RAP v1), and the default ray worker dies with
+# psutil.AccessDenied on shared nodes.
+#
+# Overrides: NAVSIM_DEVKIT_ROOT, CACHE_PATH, ENTRY, EXPERIMENT, OUTPUT_DIR,
+#            PYTHON_BIN, NAVSIM_EXP_ROOT, NUPLAN_MAPS_ROOT, OPENSCENE_DATA_ROOT.
+
+set -euo pipefail
+
+SPLIT="${1:-navtest}"
+WORKERS="${2:-12}"
+AGENT="${3:-constant_velocity_agent}"
+
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-$OPENSCENE_DATA_ROOT/maps}"
+export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp}"
+export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/navsim}"
+export PYTHONPATH="$NAVSIM_DEVKIT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+export NODE_RANK=0
+# One BLAS thread per worker process; otherwise each of the N workers spawns a
+# thread per core and they thrash (see eval_metric_cache.qsub).
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+
+case "$SPLIT" in
+  navhard_two_stage) DEFAULT_ENTRY=run_pdm_score.py ;;
+  *)                 DEFAULT_ENTRY=run_pdm_score_one_stage.py ;;
+esac
+ENTRY="${ENTRY:-$DEFAULT_ENTRY}"
+
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+CACHE_PATH="${CACHE_PATH:-$NAVSIM_EXP_ROOT/metric_cache_v2_${SPLIT}}"
+EXPERIMENT="${EXPERIMENT:-eval_v2_${SPLIT}_${AGENT}}"
+OUTPUT_DIR="${OUTPUT_DIR:-$NAVSIM_EXP_ROOT/$EXPERIMENT/${JOB_ID:-dryrun}}"
+
+# Neutral cwd: must not contain a navsim/ package.
+cd "$(dirname "$NAVSIM_DEVKIT_ROOT")"
+
+for d in "$OPENSCENE_DATA_ROOT/navsim_logs/test" "$NUPLAN_MAPS_ROOT/$NUPLAN_MAP_VERSION" "$CACHE_PATH/metadata"; do
+  [ -d "$d" ] || { echo "缺少目录: $d" >&2; exit 1; }
+done
+[ -f "$NAVSIM_DEVKIT_ROOT/navsim/planning/script/$ENTRY" ] || { echo "缺少入口: $ENTRY" >&2; exit 1; }
+
+NAVSIM_FILE="$("$PYTHON_BIN" -c 'import navsim; print(navsim.__file__)')"
+case "$NAVSIM_FILE" in
+  "$NAVSIM_DEVKIT_ROOT"/*) ;;
+  *) echo "navsim 解析到 $NAVSIM_FILE，不是 v2 devkit" >&2; exit 1 ;;
+esac
+
+EXTRA=()
+if [ "$SPLIT" = "navhard_two_stage" ]; then
+  SYN_ROOT="$OPENSCENE_DATA_ROOT/navhard_two_stage"
+  EXTRA=(
+    synthetic_sensor_path="$SYN_ROOT/sensor_blobs"
+    synthetic_scenes_path="$SYN_ROOT/synthetic_scene_pickles"
+  )
+fi
+if [ -n "${DRY_RUN:-}" ]; then
+  EXTRA+=(--cfg job)
+else
+  mkdir -p "$OUTPUT_DIR"
+fi
+
+echo "[eval-pdm-score-v2] split=$SPLIT entry=$ENTRY agent=$AGENT workers=$WORKERS cache=$CACHE_PATH out=$OUTPUT_DIR navsim=$NAVSIM_FILE"
+
+exec "$PYTHON_BIN" "$NAVSIM_DEVKIT_ROOT/navsim/planning/script/$ENTRY" \
+  train_test_split="$SPLIT" \
+  metric_cache_path="$CACHE_PATH" \
+  agent="$AGENT" \
+  experiment_name="$EXPERIMENT" \
+  output_dir="$OUTPUT_DIR" \
+  worker=single_machine_thread_pool \
+  ++worker.use_process_pool=true \
+  ++worker.max_workers="$WORKERS" \
+  ${EXTRA[@]+"${EXTRA[@]}"}
