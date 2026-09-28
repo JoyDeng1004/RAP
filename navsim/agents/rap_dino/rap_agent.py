@@ -364,6 +364,10 @@ class RAPAgent(AbstractAgent):
 
         if self.ray:
             all_res = self.worker_map(self.worker, self.get_scores, data_points)
+        elif getattr(self._config, "pdm_workers", 0) > 0:
+            # Score samples in parallel while preserving input order.
+            pool = self._get_pdm_pool()
+            all_res = [res for chunk in pool.map(self.get_scores, [[d] for d in data_points]) for res in chunk]
         else:
             all_res = self.get_scores(data_points)
 
@@ -385,6 +389,23 @@ class RAPAgent(AbstractAgent):
             all_ego_areas = torch.BoolTensor(np.stack([res[3] for res in all_res])).to(proposals.device)
 
             return final_scores, best_scores, target_scores, key_agent_corners, key_agent_labels, all_ego_areas
+
+    def _get_pdm_pool(self):
+        # Spawn avoids inheriting CUDA/NCCL state; limit BLAS threads in workers.
+        if getattr(self, "_pdm_pool", None) is None:
+            import multiprocessing as mp
+            keys = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")
+            saved = {k: os.environ.get(k) for k in keys}
+            os.environ.update({k: "1" for k in keys})
+            try:
+                self._pdm_pool = mp.get_context("spawn").Pool(self._config.pdm_workers)
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+        return self._pdm_pool
 
     def score_loss(self, pred_logit, pred_logit2,agents_state, pred_area_logits, target_scores, gt_states, gt_valid,
                    gt_ego_areas):
