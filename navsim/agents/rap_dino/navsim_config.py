@@ -14,6 +14,7 @@ class RAPConfig:
     b2d: bool = False
     cache_data: bool = False
     train_metric_cache_path: str = "./train_metric_cache"
+    dino_ckpt_path: str = "./ckpts/dinov3_vith16plus_pretrain_lvd1689m-7c1da9a5.pth"
     ref_num: int=4
 
     traj_bev: bool=True

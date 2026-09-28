@@ -27,7 +27,10 @@ class ImgEncoder(nn.Module):
         self.grid_mask = GridMask( True, True, rotate=1, offset=False, ratio=0.5, mode=1, prob=0.7)
         self.use_grid_mask = True
 
-        self.img_backbone = AutoModel.from_pretrained("facebook/dinov3-vith16plus-pretrain-lvd1689m")
+        # timm remaps the original DINOv3 checkpoint; qkvb retains query/value biases.
+        self.img_backbone = timm.create_model(
+            'vit_huge_plus_patch16_dinov3_qkvb', pretrained=True, num_classes=0,
+            pretrained_cfg_overlay=dict(file=config.dino_ckpt_path))
        # self.transform = make_transform(512)
                                    
         # original_mean = torch.tensor([[123.675, 116.28, 103.53]]).view(1,3,1,1)
@@ -85,7 +88,7 @@ class ImgEncoder(nn.Module):
             #img = self.transform(img)
             if self.training and self.use_grid_mask:
                 img = self.grid_mask(img)
-            img_feats = self.img_backbone(pixel_values=img)['last_hidden_state']
+            img_feats = self.img_backbone.forward_features(img)
             img_feats = self._tokens_to_map(img_feats,B,N,img.shape[2],img.shape[3])
 
             if isinstance(img_feats, dict):
