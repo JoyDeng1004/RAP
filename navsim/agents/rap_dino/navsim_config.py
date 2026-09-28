@@ -26,6 +26,8 @@ class RAPConfig:
     area_pred: bool=True
 
     pdm_scorer: bool=True
+    # Number of PDM scoring processes per rank; zero keeps serial scoring.
+    pdm_workers: int = 0
 
     bev_map: bool=False
     bev_agent: bool=False
