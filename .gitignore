@@ -19,7 +19,9 @@ dataset_perturbed/
 dataset_nuscenes/
 datasets/
 metric_cache
+/metric_cache_v1_navtest/
 cache
+/logs/
 wandb
 *.jpg
 *.png
