@@ -93,6 +93,12 @@ def main(cfg: DictConfig) -> None:
 
     logger.info(f"Path where all results are stored: {cfg.output_dir}")
 
+    # Check explicit resume paths before loading datasets and model weights.
+    resume_ckpt_path = cfg.get("resume_ckpt_path")
+    if resume_ckpt_path not in (None, "last") and not Path(resume_ckpt_path).is_file():
+        raise FileNotFoundError(f"resume_ckpt_path does not exist: {resume_ckpt_path}")
+    logger.info("Resume checkpoint: %s", resume_ckpt_path or "none (fresh start)")
+
     logger.info("Building Agent")
     agent: AbstractAgent = instantiate(cfg.agent)
 
@@ -208,12 +214,18 @@ def main(cfg: DictConfig) -> None:
     trainer = pl.Trainer(**cfg.trainer.params, callbacks=agent.get_training_callbacks(), logger=WandbLogger(project="rap", name=cfg.experiment_name, id=cfg.experiment_name),
             )
 
+    if cfg.get("validate_only", False):
+        # The agent loads validation weights from agent.checkpoint_path.
+        logger.info("Validate only: %d samples", len(val_data))
+        trainer.validate(model=lightning_module, dataloaders=val_dataloader)
+        return
+
     logger.info("Starting Training")
     trainer.fit(
         model=lightning_module,
         train_dataloaders=train_dataloader,
         val_dataloaders=val_dataloader,
-        ckpt_path='last'
+        ckpt_path=resume_ckpt_path,
     )
 
 

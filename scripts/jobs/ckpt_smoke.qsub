@@ -1,0 +1,53 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N rap-ckpt-smoke
+#$ -j y
+#$ -cwd
+
+# Run one training and validation batch to check fresh-start behavior.
+#   qsub -g tga-RLA -l gpu_1=1 -l h_rt=0:30:00 scripts/jobs/ckpt_smoke.qsub
+
+set -euo pipefail
+
+REPO="${REPO:-/gs/bs/tga-RLA/qdeng/RAP}"
+# Resolve relative checkpoint paths from the repository root.
+cd "$REPO"
+RAP="$REPO"
+
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-$REPO/datasets/navsim/maps}"
+export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
+# Keep batch jobs offline and load DINOv3 from the local checkpoint.
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export HF_HUB_OFFLINE=1
+
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+LOG="${LOG:-$RAP/ckpt_test_devrun.log}"
+
+echo "[ckpt-smoke] host=$(hostname) job=${JOB_ID:-local} start=$(date '+%F %T')"
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
+
+set +e
+"$PYTHON_BIN" navsim/planning/script/run_training.py \
+  agent=rap_agent \
+  dataset=navsim_dataset \
+  train_test_split=paired_full \
+  train_val_test_log_split=nuplan_trainval_paired \
+  experiment_name=ckpt_test \
+  use_cache_without_dataset=true \
+  force_cache_computation=false \
+  cache_path="$RAP/cache/rap_ego" \
+  val_cache_path="$RAP/cache/rap_ego" \
+  agent.config.train_metric_cache_path="$RAP/train_metric_cache" \
+  trainer.params.fast_dev_run=true \
+  2>&1 | tee "$LOG"
+STATUS=${PIPESTATUS[0]}
+set -e
+
+echo "[ckpt-smoke] exit=$STATUS end=$(date '+%F %T') log=$LOG"
+echo "========== summary =========="
+grep -nE "Resume checkpoint|Restored|Training sources|Validation:|Num training|Num validation|Error|Traceback" \
+  "$LOG" | head -30 || true
+
+exit "$STATUS"
