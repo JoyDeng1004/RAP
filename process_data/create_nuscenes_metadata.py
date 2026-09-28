@@ -112,14 +112,13 @@ def resolve_render_camera(
     }
 
 
-def effective_render_translation(translation: np.ndarray) -> np.ndarray:
-    """Return the translation actually used by ``ScenarioRenderer``.
+def nominal_render_translation(translation: np.ndarray, apply_viewpoint_shift: bool) -> np.ndarray:
+    """Recover nominal calibration from the translation passed to ScenarioRenderer.
 
-    ``ScenarioRenderer`` always adds ``RAP_VIEWPOINT_SHIFT``. Persisting this
-    effective translation in ``render_*`` fields keeps downstream synthetic
-    ``lidar2img`` projections geometrically aligned.
+    When the viewpoint shift is disabled, resolve_render_camera subtracts it first.
     """
-    return np.asarray(translation, dtype=np.float64) + RAP_VIEWPOINT_SHIFT
+    translation = np.asarray(translation, dtype=np.float64)
+    return translation if apply_viewpoint_shift else translation + RAP_VIEWPOINT_SHIFT
 
 
 def resolve_render_size(mode: str, spec: str, native_wh: Tuple[int, int]) -> Tuple[int, int]:
@@ -254,10 +253,10 @@ def process_scene(payload: Tuple[str, argparse.Namespace]) -> Dict[str, Any]:
                 "sensor2lidar_translation": np.asarray(calibration["translation"], np.float64),
                 "cam_intrinsic": np.asarray(calibration["camera_intrinsic"], np.float64),
                 "distortion": np.zeros(5, dtype=np.float64),  # nuScenes images are rectified.
-                # ``render_*`` fields describe the rendered raster geometry.
+                # Store nominal raster calibration without the renderer's viewpoint shift.
                 "render_sensor2lidar_rotation": render_camera["sensor2lidar_rotation"],
-                "render_sensor2lidar_translation": effective_render_translation(
-                    render_camera["sensor2lidar_translation"]
+                "render_sensor2lidar_translation": nominal_render_translation(
+                    render_camera["sensor2lidar_translation"], args.apply_rap_viewpoint_shift
                 ),
                 "render_cam_intrinsic": render_camera["intrinsics"],
                 "render_image_shape": [height, width],
