@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import wandb
 from navsim.common.waymo_utils import get_rater_feedback_score, interpolate_trajectory
+from navsim.agents.rap_dino.bevformer.bev_feature_build import NormalizeMultiviewImage
 import numpy as np
 import io, torch, zstandard as zstd
 import math
@@ -157,6 +158,13 @@ class AgentLightningModule(pl.LightningModule):
         rendered_targets = targets        
 
         if not self.training or real_only:
+            if not self.training and getattr(self.agent._config, "val_blank_camera", False):
+                # Match cached image normalization while preserving zero padding.
+                cam = real_features['camera_feature']
+                norm = NormalizeMultiviewImage
+                black = torch.as_tensor(-norm.mean / norm.std, dtype=cam.dtype, device=cam.device).view(1, 1, 3, 1, 1)
+                pad = (cam == 0).all(dim=2, keepdim=True)
+                real_features['camera_feature'] = torch.where(pad, torch.zeros_like(cam), black.expand_as(cam))
             if real_valid_mask.any():
                 prediction = self.agent.forward(real_features,real_targets)
                 loss_dict = self.agent.compute_loss(real_features, real_targets, prediction)
