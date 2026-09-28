@@ -154,8 +154,9 @@ def main() -> int:
     rows = read_index(args.cache)
     csv_tokens = [r.split("/")[-2] for r in rows]
     missing_files = [r for r in rows if not os.path.isfile(r) or os.path.getsize(r) == 0]
-    on_disk = {str(p) for p in args.cache.rglob("metric_cache.pkl")}
-    unindexed = on_disk - set(rows)
+    # Normalize both paths because the index may contain absolute paths.
+    on_disk = {os.path.realpath(p) for p in args.cache.rglob("metric_cache.pkl")}
+    unindexed = on_disk - {os.path.realpath(r) for r in rows}
     dup = len(csv_tokens) - len(set(csv_tokens))
     print(f"[index] csv rows: {len(rows)} | unique tokens: {len(set(csv_tokens))} | pkl on disk: {len(on_disk)}")
     print(f"[index] listed but missing/empty: {len(missing_files)} | on disk but not in csv: {len(unindexed)}")
