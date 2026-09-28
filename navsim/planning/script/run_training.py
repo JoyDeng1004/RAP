@@ -196,6 +196,20 @@ def main(cfg: DictConfig) -> None:
                 indices = random.sample(range(N), int(0.05*N))
                 train_parts.append(("others", Subset(train_data_others, indices)))
 
+            # Each extra source supplies cache_path and optional sampling metadata.
+            for i, src in enumerate(cfg.get("extra_train_sources") or []):
+                extra_logs = [p.name for p in Path(src.cache_path).iterdir() if p.name not in val_log_set]
+                extra = CacheOnlyDataset(
+                    cache_path=src.cache_path,
+                    feature_builders=agent.get_feature_builders(),
+                    target_builders=agent.get_target_builders(),
+                    log_names=extra_logs,
+                )
+                extra.score_mask = src.get("score_mask", False)
+                extra.rig_id = src.get("rig_id", 0)
+                extra.use_real = src.get("use_real", True)
+                train_parts.append((src.get("name", f"extra{i}"), extra))
+
             logger.info("Training sources: %s", ", ".join(f"{name}={len(ds)}" for name, ds in train_parts))
             logger.info("Validation: %d samples from %s", len(val_data), val_cache_path)
             train_data = ConcatDataset([ds for _, ds in train_parts])

@@ -215,23 +215,25 @@ class AgentLightningModule(pl.LightningModule):
 
             if real_valid_mask.any():
                                                 
+                # Compute domain loss per rig using only rendered images paired with real ones.
+                # Labels are 0 for rendered images and 1 for real images.
                 domain_logits = prediction['domain_logits']
-                N_synth = batch_size
-                N_real = domain_logits.shape[0] - N_synth
-
-                if N_synth == 0 or N_real == 0:
-                    domain_loss = torch.zeros((), device=device, dtype=torch.float32)
-                else:
-
-                    pos_weight = torch.tensor([N_synth / max(1, N_real)], device=domain_logits.device)
-                    bce_logits = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-
-                    # Rendered samples use label 0; real samples use label 1.
-                    domain_labels = torch.cat([
-                        torch.zeros(N_synth, device=domain_logits.device),
-                        torch.ones(N_real, device=domain_logits.device)
-                    ], dim=0)
-                    domain_loss = bce_logits(domain_logits, domain_labels.float())
+                synth_logits = domain_logits[:batch_size][real_valid_mask]
+                real_logits = domain_logits[batch_size:]
+                paired_rig = targets['rig_id'][real_valid_mask]
+                group_losses = []
+                for g in range(2):  # 0 = NAVSIM rig, 1 = nuScenes rig
+                    in_g = paired_rig == g
+                    n_g = int(in_g.sum())
+                    if n_g > 0:
+                        logits_g = torch.cat([synth_logits[in_g], real_logits[in_g]])
+                        labels_g = torch.cat([torch.zeros_like(real_logits[in_g]), torch.ones_like(real_logits[in_g])])
+                        loss_g = F.binary_cross_entropy_with_logits(logits_g, labels_g)
+                        group_losses.append(loss_g)
+                    else:
+                        loss_g = torch.zeros((), device=domain_logits.device)
+                    self.log(f"{logging_prefix}/domain_loss_rig{g}", loss_g, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=max(n_g, 1))
+                domain_loss = torch.stack(group_losses).mean()
 
                 loss_dict['domain_loss'] = domain_loss
                 loss_dict['loss'] += 0.001*domain_loss

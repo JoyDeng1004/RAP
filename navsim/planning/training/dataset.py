@@ -69,6 +69,9 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         self._feature_builders = feature_builders
         self._target_builders = target_builders
         self.score_mask = True
+        # Rig labels separate domain losses; use_real=False omits the real image.
+        self.rig_id = 0
+        self.use_real = True
         cache_file = self._cache_path / f"valid_cache_{self.split}.pkl"
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         
@@ -166,6 +169,9 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
             targets['score_mask']=torch.tensor(True)
         else:
             targets['score_mask']=torch.tensor(False)
+        targets['rig_id'] = torch.tensor(self.rig_id)
+        if not self.use_real:
+            features['camera_valid'] = torch.tensor(False)
         return (features, targets)
 
 
