@@ -258,7 +258,8 @@ class AgentLightningModule(pl.LightningModule):
                 
         for k, v in loss_dict.items():
             if v is not None:
-                self.log(f"{logging_prefix}/{k}", v, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=len(batch[0]) if k not in ['ade_real', 'loss_render'] else int(real_valid_mask.sum()))
+                # Keep validation metrics epoch-only for ModelCheckpoint.
+                self.log(f"{logging_prefix}/{k}", v, on_step=self.training, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=len(batch[0]) if k not in ['ade_real', 'loss_render'] else int(real_valid_mask.sum()))
         
         if self.global_step % 10 == 0 and self.global_rank == 0 and False:
             visualize_idx = 0
