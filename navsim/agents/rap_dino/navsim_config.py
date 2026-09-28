@@ -64,6 +64,8 @@ class RAPConfig:
     # Keep 0.1 to reproduce RAP; set 1.0 to separate the recovery/render effect
     # from the loss down-weighting it currently comes bundled with.
     unscored_traj_weight: float = 0.1
+    # Replace real camera images with black during validation to measure vision dependence.
+    val_blank_camera: bool = False
     agent_class_weight: float = 1.0
     agent_box_weight: float = 0.1
     bev_semantic_weight: float = 1.0
