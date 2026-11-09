@@ -1,0 +1,19 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N sum_t2swap
+#$ -j y
+#$ -cwd
+
+# T2 feature swap: rebuild eval/t2_results/t2_swap_<TAG>.md from every t2swap_<TAG>_* run.
+#
+#   qsub -g tga-RLA -l cpu_4=1 -l h_rt=0:30:00 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       [-hold_jid 't2s_<TAG>_*'] -v TAG=full /gs/bs/tga-RLA/qdeng/RAP/scripts/jobs/eval/summarize_t2_swap.qsub
+
+set -euo pipefail
+
+TAG="${TAG:-full}"
+RAP="${RAP:-/gs/bs/tga-RLA/qdeng/RAP}"
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+
+echo "[sum-t2-swap] host=$(hostname) job=${JOB_ID:-local} tag=$TAG"
+exec "$PYTHON_BIN" "$RAP/eval/tools/summarize_t2_swap.py" --tag "$TAG"

@@ -1,0 +1,50 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N t2scen
+#$ -j y
+#$ -cwd
+
+# T2 stage A (CPU): renderer input for every token of a metric cache, from NAVSIM logs + nuPlan maps.
+#
+#   qsub -g tga-RLA -l cpu_8=1 -l h_rt=1:00:00 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       -v OUT_DIR=<dir>[,CACHE_PATH=<cache>,PER_LOG=2,MAX_LOGS=3] build_t2_scenarios.qsub [workers]
+#
+# MODE=v0 instead renders COMPARE trainval frames that have official raster files with the identity
+# rig and reports the pixel difference (validates the scenario reconstruction and the render path):
+#
+#   qsub ... -v MODE=v0,COMPARE=6 build_t2_scenarios.qsub
+
+set -euo pipefail
+
+WORKERS="${1:-8}"
+MODE="${MODE:-build}"
+RAP="${RAP:-/gs/bs/tga-RLA/qdeng/RAP}"
+EVAL_DIR="${EVAL_DIR:-$RAP/eval}"
+CACHE_PATH="${CACHE_PATH:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp/metric_cache_v1_navtest_t1sub}"
+
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-$OPENSCENE_DATA_ROOT/maps}"
+export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+export PYTHONPATH="$EVAL_DIR/py"
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+
+[ -d "$NUPLAN_MAPS_ROOT/$NUPLAN_MAP_VERSION" ] || { echo "缺少地图: $NUPLAN_MAPS_ROOT/$NUPLAN_MAP_VERSION" >&2; exit 1; }
+for f in "$EVAL_DIR/v1/build_t2_scenarios.py" "$EVAL_DIR/py/rap_eval_agents/t2_render.py" \
+         "$RAP/process_data/create_openscene_metadata.py" "$RAP/process_data/helpers/renderer.py"; do
+  [ -f "$f" ] || { echo "缺少文件: $f" >&2; exit 1; }
+done
+
+cd "$EVAL_DIR"
+if [ "$MODE" = "v0" ]; then
+  [ -d "$OPENSCENE_DATA_ROOT/rendered_sensor_blobs/trainval" ] || { echo "缺少官方 raster: $OPENSCENE_DATA_ROOT/rendered_sensor_blobs/trainval" >&2; exit 1; }
+  echo "[t2-scen] host=$(hostname) job=${JOB_ID:-local} mode=v0 compare=${COMPARE:-6} maps=$NUPLAN_MAPS_ROOT"
+  exec "$PYTHON_BIN" "$EVAL_DIR/v1/build_t2_scenarios.py" --rap-root "$RAP" --split trainval \
+    --compare-official "${COMPARE:-6}"
+fi
+
+: "${OUT_DIR:?set OUT_DIR}"
+[ -d "$CACHE_PATH/metadata" ] || { echo "缺少目录: $CACHE_PATH/metadata" >&2; exit 1; }
+echo "[t2-scen] host=$(hostname) job=${JOB_ID:-local} workers=$WORKERS cache=$CACHE_PATH out=$OUT_DIR per_log=${PER_LOG:-0} max_logs=${MAX_LOGS:-0} maps=$NUPLAN_MAPS_ROOT"
+exec "$PYTHON_BIN" "$EVAL_DIR/v1/build_t2_scenarios.py" --rap-root "$RAP" --metric-cache "$CACHE_PATH" \
+  --out-dir "$OUT_DIR" --workers "$WORKERS" --per-log "${PER_LOG:-0}" --max-logs "${MAX_LOGS:-0}"
