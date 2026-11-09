@@ -1,0 +1,177 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N rap-r2r
+#$ -j y
+#$ -cwd
+# R2R alignment ablation on NAVSIM-only RAP, named D1-R{ratio}-{align|noalign|raster}
+# (see docs/experiment_names.md). Everything except the data mix and the alignment weights
+# is copied from train_e2a_p100.qsub (D1-K100): from scratch, no official augmentation,
+# 32x2x4, 20 epochs, pdm_workers 16, val = the same 214 NAVSIM logs.
+# Real ratio follows RAP §4.2: real images are kept for the logs of a K-shot split and the
+# remaining logs of the 978-log pool give raster only, so the total is always 85,016 samples.
+#   RATIO=100  main NAVSIM p100 (real + raster)
+#   RATIO=1    main NAVSIM p001_seed0 (real + raster) + extra source cache/rap_ego_rest_p001_seed0
+#              (the other 968 logs, raster only, score_mask true, rig 0; build it with
+#              process_data/make_kshot_complement.py)
+#   RATIO=0    main NAVSIM p100 with train_use_real=false (no real image, so ALIGN=na)
+#   ALIGN=on   official weights (spatial MSE 0.002, GRL domain loss 0.001)
+#   ALIGN=off  distill_feature_weight=0 and domain_loss_weight=0 (both losses are still computed and logged)
+# The split is always seed0; SEED (0/1/2) only changes the training seed. EXP defaults to
+# D1-R${RATIO}-{align|noalign|raster}_s${SEED}. D1-R100-align_s0 is the existing D1-K100 run.
+# Smoke test:
+#   qsub -g tga-RLA -l gpu_1=1 -l h_rt=0:45:00 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       -v RATIO=1,ALIGN=off,EXP=D1-R1-noalign_smoke,RESUME=null scripts/jobs/train_r2r.qsub trainer.params.fast_dev_run=true
+# Full run (resubmit the same command to resume from last.ckpt):
+#   qsub -g tga-RLA -ar <AR_ID> -l node_f=1 -l h_rt=<hours> -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       -v RATIO=1,ALIGN=off,WANDB_MODE=online scripts/jobs/train_r2r.qsub
+
+set -euo pipefail
+
+REPO="${REPO:-/gs/bs/tga-RLA/qdeng/RAP}"
+# Resolve relative checkpoint paths from the repository root.
+cd "$REPO"
+RAP="$REPO"
+
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-$REPO/datasets/navsim/maps}"
+export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
+# Default to offline W&B logging in batch jobs.
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export HF_HUB_OFFLINE=1
+
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+RATIO="${RATIO:?RATIO must be 100, 1 or 0}"
+ALIGN="${ALIGN:-}"
+SEED="${SEED:-0}"
+case "$SEED" in 0|1|2) ;; *) echo "[r2r] SEED 只能是 0、1 或 2，当前为 $SEED" >&2; exit 1 ;; esac
+# Resume from last.ckpt when one exists.
+RESUME="${RESUME:-last}"
+
+CACHE="$RAP/cache/rap_ego"
+VAL_CACHE="$RAP/cache/rap_ego"
+TRAIN_METRIC_CACHE="$RAP/train_metric_cache"
+DINO_CKPT="$RAP/ckpts/dinov3_vith16plus_pretrain_lvd1689m-7c1da9a5.pth"
+POOL_LOGS=978
+
+# Run definitions: not overridable.
+RUN_ARGS=()
+REST_CACHE=""
+case "$RATIO" in
+  100)
+    SPLIT=navsim_kshot_p100_seed0; N_LOGS=978 ;;
+  1)
+    SPLIT=navsim_kshot_p001_seed0; N_LOGS=10
+    REST_CACHE="$RAP/cache/rap_ego_rest_p001_seed0"
+    RUN_ARGS+=("++extra_train_sources=[{name:navsim_raster_rest,cache_path:$REST_CACHE,score_mask:true,rig_id:0,use_real:false}]") ;;
+  0)
+    SPLIT=navsim_kshot_p100_seed0; N_LOGS=978
+    RUN_ARGS+=("++train_use_real=false") ;;
+  *) echo "[r2r] RATIO 只能是 100、1 或 0，当前为 $RATIO" >&2; exit 1 ;;
+esac
+case "$RATIO:$ALIGN" in
+  0:|0:na) ALIGN=na; TAG=raster ;;
+  0:*) echo "[r2r] RATIO=0 没有真图配对，对齐无从开关；不要设 ALIGN" >&2; exit 1 ;;
+  *:on) TAG=align ;;
+  *:off)
+    TAG=noalign
+    RUN_ARGS+=("++agent.config.distill_feature_weight=0" "++agent.config.domain_loss_weight=0") ;;
+  *) echo "[r2r] RATIO=$RATIO 需要 ALIGN=on 或 off，当前为 '$ALIGN'" >&2; exit 1 ;;
+esac
+EXP="${EXP:-D1-R${RATIO}-${TAG}_s${SEED}}"
+SPLIT_YAML="$RAP/navsim/planning/script/config/training/train_val_test_log_split/$SPLIT.yaml"
+
+mkdir -p "$RAP/logs"
+LOG="${LOG:-$RAP/logs/${EXP}_${JOB_ID:-local}.log}"
+
+echo "[r2r] host=$(hostname) job=${JOB_ID:-local} start=$(date '+%F %T') extra=$*"
+echo "[r2r] RATIO=$RATIO ALIGN=$ALIGN SEED=$SEED EXP=$EXP RESUME=$RESUME SPLIT=$SPLIT REST_CACHE=${REST_CACHE:-none}"
+echo "[r2r] RUN_ARGS=${RUN_ARGS[*]:-}"
+echo "[r2r] NAVSIM_EXP_ROOT=$NAVSIM_EXP_ROOT OPENSCENE_DATA_ROOT=$OPENSCENE_DATA_ROOT"
+echo "[r2r] WANDB_MODE=$WANDB_MODE PYTHON_BIN=$PYTHON_BIN LOG=$LOG"
+
+# Abort before launch if the run definition or its inputs are off.
+fail() { echo "[r2r] 启动前检查失败: $*" >&2; exit 1; }
+for arg in "$@"; do
+  case "$arg" in
+    *checkpoint_path*) fail "从头训练，不接受 $arg" ;;
+    *extra_train_sources*|*cache_path*|*train_val_test_log_split*|*restrict_train_logs*|*score_mask*|*train_use_real*|*train_min_samples*) \
+      fail "数据定义写死在脚本里，不接受 $arg" ;;
+    *distill_feature_weight*|*domain_loss_weight*) fail "对齐权重由 ALIGN 决定，不接受 $arg" ;;
+    *batch_size*|*accumulate_grad_batches*|*max_epochs*|*seed=*|*pdm_workers*) \
+      fail "训练设置写死在脚本里（32×2×4、20 epoch、seed 用 -v SEED 指定、pdm_workers 16），不接受 $arg" ;;
+  esac
+done
+case "$RESUME" in last|null) ;; *) fail "RESUME 只能是 last 或 null，当前为 $RESUME" ;; esac
+for d in "$CACHE" "$VAL_CACHE" "$TRAIN_METRIC_CACHE"; do
+  [ -d "$d" ] || fail "缺少目录: $d"
+  n=$(find "$d" -mindepth 1 -maxdepth 1 -type d | wc -l)
+  [ "$n" -gt 0 ] || fail "目录为空: $d"
+  echo "[r2r] ok $d (${n} log dirs)"
+done
+for f in "$DINO_CKPT" "$SPLIT_YAML"; do
+  [ -f "$f" ] || fail "缺少文件: $f"
+done
+grep -qE '^restrict_train_logs: *true' "$SPLIT_YAML" || fail "$SPLIT_YAML 里没有 restrict_train_logs: true"
+split_logs() { tr -d '\r' < "$1" | awk '/^train_logs:/{f=1;next} /^[a-z_]+:/{f=0} f && /[^[:space:]]/{sub(/^[ -]+/,""); print}'; }
+n_train=$(split_logs "$SPLIT_YAML" | wc -l)
+[ "$n_train" -eq "$N_LOGS" ] || fail "$SPLIT_YAML 的 train_logs 应为 $N_LOGS 个，实际 $n_train"
+if [ -n "$REST_CACHE" ]; then
+  [ -d "$REST_CACHE" ] || fail "缺少补集目录 $REST_CACHE（先跑 process_data/make_kshot_complement.py）"
+  # -L: the complement is a directory of symlinks to log dirs.
+  n_rest=$(find -L "$REST_CACHE" -mindepth 1 -maxdepth 1 -type d | wc -l)
+  [ "$n_rest" -eq $((POOL_LOGS - N_LOGS)) ] || fail "补集应为 $((POOL_LOGS - N_LOGS)) 个 log，实际 $n_rest"
+  overlap=$(split_logs "$SPLIT_YAML" | while read -r l; do if [ -e "$REST_CACHE/$l" ]; then echo "$l"; fi; done | wc -l)
+  [ "$overlap" -eq 0 ] || fail "补集里有 $overlap 个 log 和 $SPLIT 重复"
+  echo "[r2r] ok $REST_CACHE (${n_rest} log dirs, no overlap with $SPLIT)"
+fi
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
+
+set +e
+"$PYTHON_BIN" navsim/planning/script/run_training.py \
+  agent=rap_agent \
+  dataset=navsim_dataset \
+  train_test_split=paired_full \
+  train_val_test_log_split="$SPLIT" \
+  ++restrict_train_logs=true \
+  experiment_name="$EXP" \
+  resume_ckpt_path="$RESUME" \
+  use_cache_without_dataset=true \
+  force_cache_computation=false \
+  cache_path="$CACHE" \
+  val_cache_path="$VAL_CACHE" \
+  train_score_mask=true \
+  val_score_mask=true \
+  ${RUN_ARGS[@]+"${RUN_ARGS[@]}"} \
+  agent.config.trajectory_sampling.time_horizon=5 \
+  agent.config.train_metric_cache_path="$TRAIN_METRIC_CACHE" \
+  agent.config.dino_ckpt_path="$DINO_CKPT" \
+  ++agent.config.pdm_workers=16 \
+  ++agent.config.unscored_traj_weight=1.0 \
+  dataloader.params.batch_size=32 \
+  dataloader.params.prefetch_factor=4 \
+  trainer.params.accumulate_grad_batches=2 \
+  trainer.params.max_epochs=20 \
+  seed="$SEED" \
+  ++trainer.params.log_every_n_steps=10 \
+  "$@" \
+  2>&1 | tee "$LOG"
+STATUS=${PIPESTATUS[0]}
+set -e
+
+echo "[r2r] exit=$STATUS end=$(date '+%F %T') log=$LOG"
+echo "========== summary =========="
+grep -nE "Resume checkpoint|Restored|No checkpoint path|Missing keys|Unexpected keys|Training sources|Validation: [0-9]|Num training samples|Num validation|Error|Traceback|Could not override|HYDRA_FULL_ERROR" \
+  "$LOG" | head -30 || true
+# Check the resolved data mix and alignment weights.
+CFG=$(ls -t "$NAVSIM_EXP_ROOT/$EXP"/*/code/hydra/config.yaml 2>/dev/null | head -1 || true)
+echo "config: ${CFG:-<none>}"
+[ -n "$CFG" ] && grep -nE "distill_feature_weight|domain_loss_weight|unscored_traj_weight|train_score_mask|val_score_mask|train_use_real|restrict_train_logs|checkpoint_path|time_horizon|pdm_workers|extra_train_sources|name: navsim|cache_path|use_real|max_epochs|^seed" "$CFG" || true
+# Count deformable-attention CUDA errors.
+echo "ms_deformable errors: $(grep -c 'error in ms_deformable' "$LOG" || true)"
+# Extract the latest progress-bar metrics; with ALIGN=off loss_render and domain_loss stay non-zero
+# (still computed) but carry zero weight.
+tr '\r' '\n' < "$LOG" \
+  | grep -oE "(train|val)/(loss|min_loss|inter_loss|loss_render|domain_loss|domain_loss_rig[01]|ade_real|score|best_score|final_score_loss|sub_score_loss)(_step|_epoch)?=[^ ,]+" \
+  | awk -F= '{last[$1]=$2} END {for (k in last) print k"="last[k]}' | sort || true
+exit "$STATUS"
