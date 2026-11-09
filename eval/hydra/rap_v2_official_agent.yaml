@@ -1,0 +1,16 @@
+# -> $NAVSIM_DEVKIT_ROOT/navsim/planning/script/config/common/agent/rap_v2_official_agent.yaml
+# Official vita-epfl/RAP checkpoints: HF-named frozen backbone is skipped, timm pretrained DINOv3 is kept.
+# Paths come from the environment so process_data/eval_pdm_score_v2.qsub is used unchanged.
+_target_: rap_eval_agents.rap_v2_agent.RAPV2Agent
+_convert_: 'all'
+rap_root: ${oc.env:RAP_ROOT,/gs/bs/tga-RLA/qdeng/RAP}
+checkpoint_path: ${oc.env:RAP_CKPT}
+dino_ckpt_path: ${oc.env:RAP_DINO_CKPT,/gs/bs/tga-RLA/qdeng/RAP/ckpts/dinov3_vith16plus_pretrain_lvd1689m-7c1da9a5.pth}
+model_time_horizon: 5.0
+load_backbone: false
+selector: ${oc.env:RAP_SELECTOR,scorer}
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
