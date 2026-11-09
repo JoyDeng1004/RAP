@@ -1,0 +1,206 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N rap-dk
+#$ -j y
+#$ -cwd
+
+# Shot-curve runs named D{sources}-K{target real %}[-suffix] (see docs/experiment_names.md).
+# RUN picks one hard-coded definition; every other setting matches E2a/E3/E4
+# (32x2x4, 20 epochs, pdm_workers 16, val = the same 214 NAVSIM logs).
+# SEED (0/1/2, default 0) picks both the K-shot split navsim_kshot_p*_seed$SEED and the training seed;
+# EXP defaults to ${RUN}_s$SEED.
+#   D1-K1            NAVSIM p001 (10 logs, real + raster) only; main repeated to >= 8,555
+#                    samples per epoch so steps/epoch and the epoch-level LR schedule match E2a.
+#   D2-K1-mix        E3 sources with NAVSIM p001 instead of p010; main repeated to >= 8,555
+#                    samples so steps (4,280) and target share (15.6%) match E3.
+#   D2-K0-scene-mix  E3 sources, but NAVSIM p010 keeps only its raster (train_use_real=false).
+#   D3-K1-mix        D2-K1-mix plus WOMD training_20s rendered to the NAVSIM rig (raster only,
+#                    no score, rig 0, outside the domain loss): the 23,099-sample scenario-level
+#                    subset rap_womd_navsimrig_23k, sized like each nuScenes source.
+#   D2-K1-womd       NAVSIM p001 + WOMD 23k raster only (no nuScenes): the other second
+#                    source, to compare with D2-K1-mix and D1-K1. Display name D2-K1-womd-tgt-23k.
+# Fixed-budget grid (external = NAVSIM-rig raster only, 23k samples per epoch in total, so
+# steps/epoch and target share match D2-K1-womd; the trailing number is the total, split
+# equally over the listed sources):
+#   D2-K1-nusc-tgt-23k       NAVSIM p001 + nuScenes -> NAVSIM-rig raster (all 23,099).
+#   D3-K1-nusc-womd-tgt-23k  NAVSIM p001 + nuScenes raster ~11.5k + WOMD raster ~11.5k
+#                            (scenario-level subsets *_11k5, process_data/make_cache_subset.py).
+#   D1-K1-stepmatch-23k      NAVSIM p001 only, main repeated to >= 32,255 rows per epoch so
+#                            steps/epoch match the 23k cells: separates "more data" from "more steps".
+# All runs train from scratch (agent.checkpoint_path is rejected).
+# Smoke test:
+#   qsub -g tga-RLA -l gpu_1=1 -l h_rt=0:45:00 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       -v RUN=D2-K1-mix,EXP=D2-K1-mix_smoke,RESUME=null scripts/jobs/train_dk.qsub trainer.params.fast_dev_run=true
+# Full run (resubmit the same command to resume from last.ckpt):
+#   qsub -g tga-RLA -ar <AR_ID> -l node_f=1 -l h_rt=<hours> -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       -v RUN=D2-K1-mix,WANDB_MODE=online scripts/jobs/train_dk.qsub
+
+set -euo pipefail
+
+REPO="${REPO:-/gs/bs/tga-RLA/qdeng/RAP}"
+# Resolve relative checkpoint paths from the repository root.
+cd "$REPO"
+RAP="$REPO"
+
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-$REPO/datasets/navsim/maps}"
+export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
+# Default to offline W&B logging in batch jobs.
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export HF_HUB_OFFLINE=1
+
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+RUN="${RUN:?RUN must be D1-K1, D2-K1-mix, D2-K0-scene-mix, D3-K1-mix, D2-K1-womd, D2-K1-nusc-tgt-23k, D3-K1-nusc-womd-tgt-23k or D1-K1-stepmatch-23k}"
+SEED="${SEED:-0}"
+case "$SEED" in 0|1|2) ;; *) echo "[dk] SEED 只能是 0、1 或 2，当前为 $SEED" >&2; exit 1 ;; esac
+EXP="${EXP:-${RUN}_s${SEED}}"
+# Resume from last.ckpt when one exists.
+RESUME="${RESUME:-last}"
+
+CACHE="$RAP/cache/rap_ego"
+VAL_CACHE="$RAP/cache/rap_ego"
+NATIVERIG_CACHE="$RAP/cache/rap_nusc_nativerig"
+NAVSIMRIG_CACHE="$RAP/cache/rap_nusc_navsimrig"
+# Symlink subset of cache/rap_womd_navsimrig (process_data/make_cache_subset.py).
+WOMD_CACHE="$RAP/cache/rap_womd_navsimrig_23k"
+# Half-budget subsets for D3-K1-nusc-womd-tgt-23k (the WOMD one is a subset of the 23k one).
+NUSC_TGT_HALF_CACHE="$RAP/cache/rap_nusc_navsimrig_11k5"
+WOMD_HALF_CACHE="$RAP/cache/rap_womd_navsimrig_11k5"
+TRAIN_METRIC_CACHE="$RAP/train_metric_cache"
+DINO_CKPT="$RAP/ckpts/dinov3_vith16plus_pretrain_lvd1689m-7c1da9a5.pth"
+# Same sources, order and flags as E3.
+NUSC_PAIR="{name:nusc_pair,cache_path:$NATIVERIG_CACHE,score_mask:false,rig_id:1,use_real:true}"
+NUSC_TGT="{name:nusc_navsimrig_raster,cache_path:$NAVSIMRIG_CACHE,score_mask:false,rig_id:0,use_real:false}"
+WOMD_TGT="{name:womd_navsimrig_raster,cache_path:$WOMD_CACHE,score_mask:false,rig_id:0,use_real:false}"
+NUSC_TGT_HALF="{name:nusc_navsimrig_raster_11k5,cache_path:$NUSC_TGT_HALF_CACHE,score_mask:false,rig_id:0,use_real:false}"
+WOMD_TGT_HALF="{name:womd_navsimrig_raster_11k5,cache_path:$WOMD_HALF_CACHE,score_mask:false,rig_id:0,use_real:false}"
+
+# Run definitions: not overridable.
+RUN_ARGS=()
+case "$RUN" in
+  D1-K1)
+    SPLIT=navsim_kshot_p001_seed${SEED}; N_LOGS=10; EXTRA_SOURCES=""
+    RUN_ARGS+=("++train_min_samples=8555") ;;
+  D2-K1-mix)
+    SPLIT=navsim_kshot_p001_seed${SEED}; N_LOGS=10; EXTRA_SOURCES="[$NUSC_PAIR,$NUSC_TGT]"
+    RUN_ARGS+=("++train_min_samples=8555") ;;
+  D2-K0-scene-mix)
+    SPLIT=navsim_kshot_p010_seed${SEED}; N_LOGS=98; EXTRA_SOURCES="[$NUSC_PAIR,$NUSC_TGT]"
+    RUN_ARGS+=("++train_use_real=false") ;;
+  D3-K1-mix)
+    SPLIT=navsim_kshot_p001_seed${SEED}; N_LOGS=10; EXTRA_SOURCES="[$NUSC_PAIR,$NUSC_TGT,$WOMD_TGT]"
+    RUN_ARGS+=("++train_min_samples=8555") ;;
+  D2-K1-womd)
+    SPLIT=navsim_kshot_p001_seed${SEED}; N_LOGS=10; EXTRA_SOURCES="[$WOMD_TGT]"
+    RUN_ARGS+=("++train_min_samples=8555") ;;
+  D2-K1-nusc-tgt-23k)
+    SPLIT=navsim_kshot_p001_seed${SEED}; N_LOGS=10; EXTRA_SOURCES="[$NUSC_TGT]"
+    RUN_ARGS+=("++train_min_samples=8555") ;;
+  D3-K1-nusc-womd-tgt-23k)
+    SPLIT=navsim_kshot_p001_seed${SEED}; N_LOGS=10; EXTRA_SOURCES="[$NUSC_TGT_HALF,$WOMD_TGT_HALF]"
+    RUN_ARGS+=("++train_min_samples=8555") ;;
+  D1-K1-stepmatch-23k)
+    # 9,152 target rows + 23,103 external rows in the 23k cells.
+    SPLIT=navsim_kshot_p001_seed${SEED}; N_LOGS=10; EXTRA_SOURCES=""
+    RUN_ARGS+=("++train_min_samples=32255") ;;
+  *) echo "[dk] 未知的 RUN: $RUN" >&2; exit 1 ;;
+esac
+[ -n "$EXTRA_SOURCES" ] && RUN_ARGS+=("++extra_train_sources=$EXTRA_SOURCES")
+SPLIT_YAML="$RAP/navsim/planning/script/config/training/train_val_test_log_split/$SPLIT.yaml"
+
+mkdir -p "$RAP/logs"
+LOG="${LOG:-$RAP/logs/${EXP}_${JOB_ID:-local}.log}"
+
+echo "[dk] host=$(hostname) job=${JOB_ID:-local} start=$(date '+%F %T') extra=$*"
+echo "[dk] RUN=$RUN SEED=$SEED EXP=$EXP RESUME=$RESUME SPLIT=$SPLIT"
+echo "[dk] CACHE=$CACHE VAL_CACHE=$VAL_CACHE"
+echo "[dk] RUN_ARGS=${RUN_ARGS[*]}"
+echo "[dk] NAVSIM_EXP_ROOT=$NAVSIM_EXP_ROOT OPENSCENE_DATA_ROOT=$OPENSCENE_DATA_ROOT"
+echo "[dk] WANDB_MODE=$WANDB_MODE PYTHON_BIN=$PYTHON_BIN LOG=$LOG"
+
+# Abort before launch if the run definition or its inputs are off.
+fail() { echo "[dk] 启动前检查失败: $*" >&2; exit 1; }
+for arg in "$@"; do
+  case "$arg" in
+    *checkpoint_path*) fail "从头训练，不接受 $arg" ;;
+    *extra_train_sources*|*cache_path*|*train_val_test_log_split*|*restrict_train_logs*|*score_mask*|*train_use_real*|*train_min_samples*) \
+      fail "数据定义写死在脚本里，不接受 $arg" ;;
+    *batch_size*|*accumulate_grad_batches*|*max_epochs*|*seed=*|*pdm_workers*) \
+      fail "训练设置写死在脚本里（32×2×4、20 epoch、seed 用 -v SEED 指定、pdm_workers 16），不接受 $arg" ;;
+  esac
+done
+case "$RESUME" in last|null) ;; *) fail "RESUME 只能是 last 或 null，当前为 $RESUME" ;; esac
+CHECK_DIRS=("$CACHE" "$VAL_CACHE" "$NATIVERIG_CACHE" "$NAVSIMRIG_CACHE" "$TRAIN_METRIC_CACHE")
+# Subset caches are only required by the runs that use them.
+for d in "$WOMD_CACHE" "$NUSC_TGT_HALF_CACHE" "$WOMD_HALF_CACHE"; do
+  case "$EXTRA_SOURCES" in *"cache_path:$d,"*) CHECK_DIRS+=("$d") ;; esac
+done
+for d in "${CHECK_DIRS[@]}"; do
+  [ -d "$d" ] || fail "缺少目录: $d"
+  # -L: subset caches are directories of symlinks to log dirs.
+  n=$(find -L "$d" -mindepth 1 -maxdepth 1 -type d | wc -l)
+  [ "$n" -gt 0 ] || fail "目录为空: $d"
+  echo "[dk] ok $d (${n} log dirs)"
+done
+for f in "$DINO_CKPT" "$SPLIT_YAML"; do
+  [ -f "$f" ] || fail "缺少文件: $f"
+done
+grep -qE '^restrict_train_logs: *true' "$SPLIT_YAML" || fail "$SPLIT_YAML 里没有 restrict_train_logs: true"
+n_train=$(tr -d '\r' < "$SPLIT_YAML" | awk '/^train_logs:/{f=1;next} /^[a-z_]+:/{f=0} f && /[^[:space:]]/' | wc -l)
+[ "$n_train" -eq "$N_LOGS" ] || fail "$SPLIT_YAML 的 train_logs 应为 $N_LOGS 个，实际 $n_train"
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
+
+set +e
+"$PYTHON_BIN" navsim/planning/script/run_training.py \
+  agent=rap_agent \
+  dataset=navsim_dataset \
+  train_test_split=paired_full \
+  train_val_test_log_split="$SPLIT" \
+  ++restrict_train_logs=true \
+  experiment_name="$EXP" \
+  resume_ckpt_path="$RESUME" \
+  use_cache_without_dataset=true \
+  force_cache_computation=false \
+  cache_path="$CACHE" \
+  val_cache_path="$VAL_CACHE" \
+  train_score_mask=true \
+  val_score_mask=true \
+  "${RUN_ARGS[@]}" \
+  agent.config.trajectory_sampling.time_horizon=5 \
+  agent.config.train_metric_cache_path="$TRAIN_METRIC_CACHE" \
+  agent.config.dino_ckpt_path="$DINO_CKPT" \
+  ++agent.config.pdm_workers=16 \
+  ++agent.config.unscored_traj_weight=1.0 \
+  dataloader.params.batch_size=32 \
+  dataloader.params.prefetch_factor=4 \
+  trainer.params.accumulate_grad_batches=2 \
+  trainer.params.max_epochs=20 \
+  seed="$SEED" \
+  ++trainer.params.log_every_n_steps=10 \
+  "$@" \
+  2>&1 | tee "$LOG"
+STATUS=${PIPESTATUS[0]}
+set -e
+
+echo "[dk] exit=$STATUS end=$(date '+%F %T') log=$LOG"
+echo "========== summary =========="
+grep -nE "Resume checkpoint|Restored|No checkpoint path|Missing keys|Unexpected keys|Main source repeated|Training sources|Validation: [0-9]|Num training samples|Num validation|Error|Traceback|Could not override|HYDRA_FULL_ERROR" \
+  "$LOG" | head -30 || true
+# Check the resolved training configuration.
+CFG=$(ls -t "$NAVSIM_EXP_ROOT/$EXP"/*/code/hydra/config.yaml 2>/dev/null | head -1 || true)
+echo "config: ${CFG:-<none>}"
+[ -n "$CFG" ] && grep -nE "unscored_traj_weight|train_score_mask|val_score_mask|train_use_real|train_min_samples|restrict_train_logs|checkpoint_path|time_horizon|pdm_workers|extra_train_sources|name: nusc|name: womd|cache_path|rig_id|use_real|max_epochs|^seed" "$CFG" || true
+# Count deformable-attention CUDA errors.
+echo "ms_deformable errors: $(grep -c 'error in ms_deformable' "$LOG" || true)"
+# Extract the latest progress-bar metrics, including the per-rig domain losses.
+tr '\r' '\n' < "$LOG" \
+  | grep -oE "(train|val)/(loss|min_loss|inter_loss|loss_render|domain_loss|domain_loss_rig[01]|ade_real|score|best_score|final_score_loss|sub_score_loss)(_step|_epoch)?=[^ ,]+" \
+  | awk -F= '{last[$1]=$2} END {for (k in last) print k"="last[k]}' | sort || true
+# Count progress-bar entries where each rig's domain loss is non-zero.
+for g in 0 1; do
+  tr '\r' '\n' < "$LOG" | grep -oE "train/domain_loss_rig${g}(_step)?=[^ ,]+" \
+    | awk -F= -v g="$g" '{n++; if ($2+0 != 0) nz++} END {printf "domain_loss_rig%s: %d entries, %d non-zero\n", g, n, nz}' || true
+done
+
+exit "$STATUS"
