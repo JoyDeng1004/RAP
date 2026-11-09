@@ -1,0 +1,64 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N t2surf
+#$ -j y
+#$ -cwd
+
+# T2 surface-correspondence diagnostic (run_t2_surface_v1.py): all presets in one job, NAVSIM v1,
+# official RAP weights, RAP's own v1 navsim, no Ray, no PDM scoring.
+#
+#   qsub -g tga-RLA -l gpu_1=1 -l h_rt=4:00:00 -N t2surf_<tag> -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       -v TAG=<tag>[,T2_TAG=full][,PER_LOG=2,MAX_LOGS=3] eval_t2_surface_v1.qsub [workers]
+#
+# Results: $NAVSIM_EXP_ROOT/t2surf_<tag>/<job>/<stamp>.csv. T2_TAG cross-checks anchor_cos per token against
+# the t2probe_<T2_TAG>_<preset> runs (empty = no check). PER_LOG / MAX_LOGS: smoke test.
+
+set -euo pipefail
+
+WORKERS="${1:-4}"
+RAP="${RAP:-/gs/bs/tga-RLA/qdeng/RAP}"
+EVAL_DIR="${EVAL_DIR:-$RAP/eval}"
+: "${TAG:?set TAG}"
+T2_TAG="${T2_TAG-full}"
+PRESETS="${PRESETS:-ident h_p1.0 h_m0.7 d_p1.0 d_m1.0 l_p0.5 l_m0.5 f_0.8 f_1.25}"
+RAP_CKPT="${RAP_CKPT:-/gs/bs/tga-RLA/qdeng/rap_eval/ckpts/official/RAP_DINO_navsimv1.ckpt}"
+AGENT_CONFIG="${AGENT_CONFIG:-$EVAL_DIR/hydra/rap_v2_official_agent.yaml}"
+CACHE_PATH="${CACHE_PATH:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp/metric_cache_v1_navtest_t1sub}"
+SCEN_DIR="${SCEN_DIR:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp/t2_scenarios_navtest_t1sub}"
+
+export RAP_CKPT RAP_SELECTOR=scorer
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-$OPENSCENE_DATA_ROOT/maps}"
+export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp}"
+export HF_HUB_OFFLINE=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+# navsim must be RAP's v1 copy: the agent package only, never the v2 devkit.
+export PYTHONPATH="$EVAL_DIR/py"
+
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+OUTPUT_DIR="${OUTPUT_DIR:-$NAVSIM_EXP_ROOT/t2surf_$TAG/${JOB_ID:-local}}"
+
+for d in "$OPENSCENE_DATA_ROOT/navsim_logs/test" "$OPENSCENE_DATA_ROOT/sensor_blobs/test" "$CACHE_PATH/metadata" "$SCEN_DIR"; do
+  [ -d "$d" ] || { echo "缺少目录: $d" >&2; exit 1; }
+done
+for f in "$RAP_CKPT" "$AGENT_CONFIG" "$EVAL_DIR/v1/run_t2_surface_v1.py" \
+         "$EVAL_DIR/py/rap_eval_agents/rig_probe.py" "$EVAL_DIR/py/rap_eval_agents/t2_render.py" \
+         "$EVAL_DIR/py/rap_eval_agents/t2_probe.py" "$RAP/process_data/helpers/renderer.py"; do
+  [ -f "$f" ] || { echo "缺少文件: $f" >&2; exit 1; }
+done
+T2_ARGS=()
+if [ -n "$T2_TAG" ]; then
+  for p in $PRESETS; do
+    ls "$NAVSIM_EXP_ROOT/t2probe_${T2_TAG}_${p}"/*/*.csv >/dev/null 2>&1 || { echo "缺少 T2 结果: t2probe_${T2_TAG}_${p}" >&2; exit 1; }
+  done
+  T2_ARGS=(--t2-tag "$T2_TAG")
+fi
+
+# Neutral cwd without a navsim/ package; RAP's navsim comes from its editable install.
+cd "$EVAL_DIR"
+echo "[t2-surface-v1] host=$(hostname) job=${JOB_ID:-local} workers=$WORKERS tag=$TAG t2_tag=${T2_TAG:-none} presets=[$PRESETS] ckpt=$RAP_CKPT scen=$SCEN_DIR out=$OUTPUT_DIR per_log=${PER_LOG:-0} max_logs=${MAX_LOGS:-0}"
+# shellcheck disable=SC2086
+exec "$PYTHON_BIN" "$EVAL_DIR/v1/run_t2_surface_v1.py" \
+  --rap-root "$RAP" --agent-config "$AGENT_CONFIG" --metric-cache "$CACHE_PATH" --scenario-dir "$SCEN_DIR" \
+  --presets $PRESETS --output-dir "$OUTPUT_DIR" --workers "$WORKERS" ${T2_ARGS[@]+"${T2_ARGS[@]}"} \
+  --per-log "${PER_LOG:-0}" --max-logs "${MAX_LOGS:-0}"

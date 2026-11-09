@@ -1,0 +1,19 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N sum_t2surf
+#$ -j y
+#$ -cwd
+
+# T2 surface diagnostic: rebuild eval/t2_results/t2_surface_<TAG>.md from the latest t2surf_<TAG> run.
+#
+#   qsub -g tga-RLA -l cpu_4=1 -l h_rt=0:30:00 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       [-hold_jid t2surf_<TAG>] -v TAG=full /gs/bs/tga-RLA/qdeng/RAP/scripts/jobs/eval/summarize_t2_surface.qsub
+
+set -euo pipefail
+
+TAG="${TAG:-full}"
+RAP="${RAP:-/gs/bs/tga-RLA/qdeng/RAP}"
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+
+echo "[sum-t2-surface] host=$(hostname) job=${JOB_ID:-local} tag=$TAG"
+exec "$PYTHON_BIN" "$RAP/eval/tools/summarize_t2_surface.py" --tag "$TAG"

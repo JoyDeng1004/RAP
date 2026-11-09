@@ -1,0 +1,19 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N sum_t2
+#$ -j y
+#$ -cwd
+
+# T2: rebuild eval/t2_results/t2_summary_<TAG>.md from every t2probe_<TAG>_* run (synced back by mutagen).
+#
+#   qsub -g tga-RLA -l cpu_4=1 -l h_rt=0:30:00 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       [-hold_jid 't2p_<TAG>_*'] -v TAG=full /gs/bs/tga-RLA/qdeng/RAP/scripts/jobs/eval/summarize_t2.qsub
+
+set -euo pipefail
+
+TAG="${TAG:-full}"
+RAP="${RAP:-/gs/bs/tga-RLA/qdeng/RAP}"
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+
+echo "[sum-t2] host=$(hostname) job=${JOB_ID:-local} tag=$TAG"
+exec "$PYTHON_BIN" "$RAP/eval/tools/summarize_t2.py" --tag "$TAG"
