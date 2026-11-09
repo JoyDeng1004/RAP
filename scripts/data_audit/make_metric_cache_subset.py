@@ -26,6 +26,9 @@ def main() -> int:
     parser.add_argument("--cache", type=Path, required=True, help="source metric cache")
     parser.add_argument("--out", type=Path, required=True, help="new dir; only metadata/ is written")
     parser.add_argument("--per-log", type=int, default=2, help="tokens sampled from each log")
+    parser.add_argument("--frac", type=float, default=None,
+                        help="sample round(frac * n_log) tokens (at least 1) from each log instead of --per-log, "
+                             "so logs keep their navtest weight")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -40,7 +43,10 @@ def main() -> int:
         by_log[Path(row).parts[-4]].append(row)  # <cache>/<log>/<scenario_type>/<token>/metric_cache.pkl
 
     rng = random.Random(args.seed)
-    sample = [r for log in sorted(by_log) for r in rng.sample(by_log[log], min(args.per_log, len(by_log[log])))]
+    def k(n: int) -> int:
+        return min(n, max(1, round(args.frac * n))) if args.frac is not None else min(args.per_log, n)
+
+    sample = [r for log in sorted(by_log) for r in rng.sample(by_log[log], k(len(by_log[log])))]
 
     metadata_dir = args.out / "metadata"
     if metadata_dir.exists() and any(metadata_dir.iterdir()):
@@ -51,7 +57,8 @@ def main() -> int:
     out_csv.write_text("\n".join([header, *sample]) + "\n")
 
     print(f"source: {csvs[0]} ({len(rows)} tokens, {len(by_log)} logs)")
-    print(f"sample: {len(sample)} tokens ({args.per_log}/log, seed {args.seed}) → {out_csv}")
+    how = f"frac {args.frac}" if args.frac is not None else f"{args.per_log}/log"
+    print(f"sample: {len(sample)} tokens ({how}, seed {args.seed}) → {out_csv}")
     return 0
 
 
