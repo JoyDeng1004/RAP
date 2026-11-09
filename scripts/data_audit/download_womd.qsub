@@ -1,0 +1,38 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N womd-dl
+#$ -l cpu_4=1
+#$ -l h_rt=24:00:00
+#$ -j y
+#$ -cwd
+
+# WOMD scenario 下载的 UGE 包装器（download_womd.sh）。
+#
+# 先在登录节点跑 check 和 manifest，清单写好后再投。-t 的上限就是 NTASKS，
+# 两者必须一致，否则有的份没人下：
+#
+#   qsub -g tga-RLA -t 1-8 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#        -v SPLIT=training_20s,NTASKS=8 scripts/data_audit/download_womd.qsub
+#   qsub -g tga-RLA -t 1-2 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#        -v SPLIT=validation,NTASKS=2 scripts/data_audit/download_womd.qsub
+#
+# 先试水：-t 1-1 -v SPLIT=validation,NTASKS=150 只下 1 个 shard。
+# 超时或失败的 task 重投同一个 -t 序号即可，已完成的 shard 会被跳过。
+#
+# gcloud 登录凭据在 ~/.config/gcloud，计算节点与登录节点共享 home，可直接用。
+
+set -euo pipefail
+
+REPO=/gs/bs/tga-RLA/qdeng/RAP
+cd "$REPO"
+
+SPLIT="${SPLIT:?用 -v SPLIT=training_20s|validation 指定}"
+NTASKS="${NTASKS:?用 -v NTASKS=<与 -t 上限相同> 指定}"
+
+TASK_ID="${SGE_TASK_ID:-1}"
+case "$TASK_ID" in ''|*[!0-9]*) TASK_ID=1 ;; esac
+
+# gcloud 装在 home 下且没改 PATH 时，这里兜底。
+export PATH="$HOME/google-cloud-sdk/bin:$PATH"
+
+exec bash scripts/data_audit/download_womd.sh fetch "$SPLIT" "$TASK_ID" "$NTASKS"
