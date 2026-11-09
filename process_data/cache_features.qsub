@@ -14,6 +14,9 @@
 #   qsub -g <group> -t 1-8  -l cpu_4=1  -l h_rt=4:00:00 process_data/cache_features.qsub shard A 8
 #   qsub -g <group> -t 1-24 -l cpu_16=1 -l h_rt=8:00:00 process_data/cache_features.qsub shard D 24
 #   qsub -g <group>         -l cpu_4=1  -l h_rt=1:00:00 process_data/cache_features.qsub pilot C 2
+#   qsub -g <group>         -l cpu_4=1  -l h_rt=1:00:00 process_data/cache_features.qsub pilot W 40
+#   qsub -g <group> -t 1-33 -l cpu_4=1  -l h_rt=6:00:00 process_data/cache_features.qsub shard W 33
+#     (WOMD: 64,255 scenario logs, <= 2000 per shard because of the Hydra log_names length)
 #
 # Caching is single-process and memory-bound. Use cpu_16 for large nuPlan
 # shards; 606 logs per shard exceeded cpu_4 memory. cpu_4 is enough for nuScenes.
