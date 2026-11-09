@@ -58,3 +58,14 @@ docs/slides/node_modules/
 !docs/slides/assets/**
 tools/md2pdf/
 nuscenes-mini/
+!scripts/data_audit/
+!scripts/data_audit/**
+# experiment outputs and local data (kept on disk, not in git)
+/qsub_outputs/
+/dataset_womd_pilot/
+/dataset_womd_pilot_render/
+/eval/*_results/
+/eval/audit_t1/
+/eval/womd_black/
+/eval/womd_render*/
+__pycache__/
