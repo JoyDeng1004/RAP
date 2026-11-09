@@ -1,0 +1,43 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N vehprobe_k0
+#$ -j y
+#$ -cwd
+
+# K0 diagnosis C: linear vehicle / distance probes on the F0 patch features of one checkpoint, real and raster
+# (eval/tools/vehprobe_k0.py). Token sets come from the K0 probe run k0probe_<TAG>_D2-K0-scene-mix_last.
+# Results go to $RAP/eval/k0_results/vehprobe/<LABEL>/; compare two labels afterwards on CPU:
+#   python eval/tools/vehprobe_k0.py --compare D2-K0-scene-mix_last D2-K1-mix_e13
+#
+#   qsub -g tga-RLA -l gpu_1=1 -l h_rt=2:00:00 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       -v RAP_CKPT=<ckpt>,LABEL=D2-K0-scene-mix_last,TAG=k0b[,N=30,N_TRAIN=300,N_TEST=100] vehprobe_k0.qsub
+
+set -euo pipefail
+
+RAP="${RAP:-/gs/bs/tga-RLA/qdeng/RAP}"
+EVAL_DIR="${EVAL_DIR:-$RAP/eval}"
+: "${RAP_CKPT:?set RAP_CKPT}"
+: "${LABEL:?set LABEL}"
+: "${TAG:?set TAG}"
+AGENT_CONFIG="${AGENT_CONFIG:-$EVAL_DIR/hydra/rap_v2_agent.yaml}"
+SCEN_DIR="${SCEN_DIR:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp/t2_scenarios_navtest_t1sub}"
+
+export RAP_CKPT RAP_SELECTOR=scorer
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-$OPENSCENE_DATA_ROOT/maps}"
+export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp}"
+export HF_HUB_OFFLINE=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4
+export PYTHONPATH="$EVAL_DIR/py"
+
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+"$PYTHON_BIN" -c "import sklearn" || { echo "rap 环境缺少 scikit-learn" >&2; exit 1; }
+for f in "$RAP_CKPT" "$AGENT_CONFIG" "$EVAL_DIR/tools/vehprobe_k0.py" "$EVAL_DIR/k0_results/k0_probe_${TAG}_tail_tokens.csv"; do
+  [ -f "$f" ] || { echo "缺少文件: $f" >&2; exit 1; }
+done
+
+cd "$EVAL_DIR"
+echo "[vehprobe-k0] host=$(hostname) job=${JOB_ID:-local} label=$LABEL tag=$TAG ckpt=$RAP_CKPT n_train=${N_TRAIN:-300} n_test=${N_TEST:-100}"
+exec "$PYTHON_BIN" "$EVAL_DIR/tools/vehprobe_k0.py" \
+  --rap-root "$RAP" --agent-config "$AGENT_CONFIG" --scenario-dir "$SCEN_DIR" --tag "$TAG" --label "$LABEL" \
+  --n "${N:-30}" --n-train "${N_TRAIN:-300}" --n-test "${N_TEST:-100}"
