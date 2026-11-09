@@ -1,0 +1,20 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N sum_k0p
+#$ -j y
+#$ -cwd
+
+# K0 real-vs-raster probe: rebuild eval/k0_results/k0_probe_<TAG>.md from every k0probe_<TAG>_* run
+# (plus the official t2probe_full_ident run), synced back by mutagen.
+#
+#   qsub -g tga-RLA -l cpu_4=1 -l h_rt=0:30:00 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       [-hold_jid 'k0p_<TAG>_*'] -v TAG=<tag> /gs/bs/tga-RLA/qdeng/RAP/scripts/jobs/eval/summarize_k0_probe.qsub
+
+set -euo pipefail
+
+TAG="${TAG:?set TAG}"
+RAP="${RAP:-/gs/bs/tga-RLA/qdeng/RAP}"
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+
+echo "[sum-k0p] host=$(hostname) job=${JOB_ID:-local} tag=$TAG"
+exec "$PYTHON_BIN" "$RAP/eval/tools/summarize_k0_probe.py" --tag "$TAG"
