@@ -15,7 +15,9 @@
 #   C = nuScenes logs + NAVSIM canonical rig raster  (task input C)
 #   A = nuScenes logs + nuScenes native rig raster   (alignment pair A)
 #   D = nuPlan/navtrain logs + NAVSIM rig raster     (alignment B + task D)
-# Overrides: REPO, NUSC_DS_ROOT, NAVSIM_DS_ROOT, CACHE_ROOT, NAVSIM_EXP_ROOT,
+#   W = WOMD training_20s + NAVSIM rig raster        (raster-only external source;
+#       one "log" per scenario, so shards hold thousands of small logs)
+# Overrides: REPO, NUSC_DS_ROOT, NAVSIM_DS_ROOT, WOMD_DS_ROOT, CACHE_ROOT, NAVSIM_EXP_ROOT,
 #            NUPLAN_MAPS_ROOT, TIME_HORIZON, HAS_ROUTE, PYTHON_BIN.
 
 set -euo pipefail
@@ -25,6 +27,7 @@ cd "$REPO"
 
 NUSC_DS_ROOT="${NUSC_DS_ROOT:-$REPO/dataset_nuscenes}"
 NAVSIM_DS_ROOT="${NAVSIM_DS_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
+WOMD_DS_ROOT="${WOMD_DS_ROOT:-/gs/bs/tga-RLA/qdeng/womd_dataset/rap_raster}"
 CACHE_ROOT="${CACHE_ROOT:-$REPO/cache}"
 
 export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-$REPO/exp}"
@@ -42,15 +45,18 @@ PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
 MB_PER_SAMPLE=12.4
 SEC_PER_SAMPLE=0.80
 
-# Increase only with a larger cpu_* memory request.
+# Increase only with a larger cpu_* memory request. WOMD logs are ~5 samples
+# each; its cap is set by the Hydra log_names argument (~37 B/name, 128 KiB limit).
 MAX_LOGS_PER_SHARD="${MAX_LOGS_PER_SHARD:-60}"
+WOMD_MAX_LOGS_PER_SHARD="${WOMD_MAX_LOGS_PER_SHARD:-2000}"
+max_logs_per_shard() { [ "$1" = "W" ] && echo "$WOMD_MAX_LOGS_PER_SHARD" || echo "$MAX_LOGS_PER_SHARD"; }
 
 log() { printf '[%s] %s\n' "$(date +'%m-%d %H:%M:%S')" "$*" >&2; }
 
 check_target() {
   case "$1" in
-    C|A|D) : ;;
-    *) log "未知 target: $1（可选 C|A|D）"; return 1 ;;
+    C|A|D|W) : ;;
+    *) log "未知 target: $1（可选 C|A|D|W）"; return 1 ;;
   esac
 }
 
@@ -60,12 +66,14 @@ target_split() {
     C) echo "nuscenes_trainval" ;;
     A) echo "nuscenes_trainval_native" ;;
     D) echo "trainval" ;;
+    W) echo "womd_training_20s" ;;
   esac
 }
 target_root() {
   case "$1" in
     C|A) echo "$NUSC_DS_ROOT" ;;
     D)   echo "$NAVSIM_DS_ROOT" ;;
+    W)   echo "$WOMD_DS_ROOT" ;;
   esac
 }
 # Hydra train_test_split config name.
@@ -74,6 +82,7 @@ target_test_split() {
     C) echo "nuscenes_trainval" ;;
     A) echo "nuscenes_trainval_native" ;;
     D) echo "navtrain" ;;
+    W) echo "womd_training_20s" ;;
   esac
 }
 target_filter_yaml() {
@@ -81,6 +90,7 @@ target_filter_yaml() {
   case "$1" in
     C|A) echo "$base/nuscenes_all.yaml" ;;
     D)   echo "$base/navall.yaml" ;;
+    W)   echo "$base/womd_all.yaml" ;;
   esac
 }
 target_cache_name() {
@@ -88,6 +98,7 @@ target_cache_name() {
     C) echo "rap_nusc_navsimrig" ;;
     A) echo "rap_nusc_nativerig" ;;
     D) echo "rap_ego" ;;
+    W) echo "rap_womd_navsimrig" ;;
   esac
 }
 
@@ -96,8 +107,14 @@ final_dir() { echo "$CACHE_ROOT/$(target_cache_name "$1")"; }
 # Store the samples-per-log rate measured by pilot.
 rate_file() { echo "$CACHE_ROOT/.rate_$1"; }
 
-# Read the canonical log set from scene_filter.
+# Read the canonical log set from scene_filter. womd_all.yaml has log_names: null
+# (every pkl), so W declares the pkl directory itself.
 filter_log_names() {
+  if [ "$1" = "W" ]; then
+    find "$(target_root W)/navsim_logs/$(target_split W)" -maxdepth 1 -name '*.pkl' -printf '%f\n' \
+      | sed 's/\.pkl$//'
+    return
+  fi
   awk '
     /^log_names:/ { inlist = 1; next }
     inlist && /^[[:space:]]*-[[:space:]]+/ { sub(/^[[:space:]]*-[[:space:]]+/, ""); gsub(/["'\'']/, ""); print; next }
@@ -109,6 +126,14 @@ filter_log_names() {
 available_log_names() {
   local target="$1" root split
   root="$(target_root "$target")"; split="$(target_split "$target")"
+  # ~9% of WOMD scenarios keep no anchor (stationary/hilly) and have no raster
+  # directory; caching them yields nothing, so they are not expected either.
+  if [ "$target" = "W" ]; then
+    comm -12 \
+      <(filter_log_names W | sort -u) \
+      <(find "$root/rendered_sensor_blobs/$split" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -u)
+    return
+  fi
   comm -12 \
     <(filter_log_names "$target" | sort -u) \
     <(find "$root/navsim_logs/$split" -maxdepth 1 -name '*.pkl' -printf '%f\n' 2>/dev/null \
@@ -128,6 +153,8 @@ preflight() {
   [ -x "$PYTHON_BIN" ] || { log "FAIL python 不存在: $PYTHON_BIN"; return 1; }
   [ -d "$root/navsim_logs/$split" ] \
     || { log "FAIL 元数据目录不存在: $root/navsim_logs/$split（先跑 rasterize_*.sh）"; return 1; }
+  # WOMD has no real images; the loader only needs the path to exist.
+  [ "$target" = "W" ] && mkdir -p "$root/sensor_blobs/$split"
   [ -e "$root/sensor_blobs/$split" ] \
     || { log "FAIL 真实图根不存在: $root/sensor_blobs/$split"; return 1; }
   [ -e "$root/rendered_sensor_blobs/$split" ] \
@@ -207,9 +234,10 @@ cmd_plan() {
   echo
 
   # Peak memory scales with logs per shard; cpu_4 failed at 606 nuPlan logs.
-  if [ "$max_n" -gt "$MAX_LOGS_PER_SHARD" ]; then
-    local want=$(( (avail + MAX_LOGS_PER_SHARD - 1) / MAX_LOGS_PER_SHARD ))
-    echo "!! 每片 $max_n 个 log 超过建议上限 $MAX_LOGS_PER_SHARD —— 内存峰值随每片 log 数线性增长，"
+  local cap; cap="$(max_logs_per_shard "$target")"
+  if [ "$max_n" -gt "$cap" ]; then
+    local want=$(( (avail + cap - 1) / cap ))
+    echo "!! 每片 $max_n 个 log 超过建议上限 $cap —— 内存峰值随每片 log 数线性增长，"
     echo "   nuPlan log 在 cpu_4 上 606/片 会被 OOM kill（分片目录建出来了但一个样本都没写）。"
     echo "   建议改用 $want 片： -t 1-$want ... shard $target $want   （并考虑 -l cpu_16=1）"
     echo

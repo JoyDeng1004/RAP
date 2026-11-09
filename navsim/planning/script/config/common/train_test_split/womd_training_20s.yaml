@@ -1,0 +1,9 @@
+# WOMD v1.3.1 training_20s, raster-only, rendered with the NAVSIM canonical rig.
+# Generate with process_data/create_womd_metadata.py run --womd-split training_20s.
+#   ${OPENSCENE_DATA_ROOT}/navsim_logs/womd_training_20s/
+#   ${OPENSCENE_DATA_ROOT}/rendered_sensor_blobs/womd_training_20s/
+# sensor_blobs/womd_training_20s holds nothing (no real images); train with use_real=false.
+defaults:
+  - scene_filter: womd_all
+
+data_split: womd_training_20s
