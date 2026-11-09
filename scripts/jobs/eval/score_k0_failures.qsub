@@ -1,0 +1,26 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N score_k0f
+#$ -j y
+#$ -cwd
+
+# K0 diagnosis A (CPU only): scorer scores of dangerous vs safe candidates on the V1/V3 token groups, from the probe
+# npz (eval/tools/score_k0_failures.py). Results go to $RAP/eval/k0_results/scores/<MODEL>/.
+#
+#   qsub -g tga-RLA -l cpu_4=1 -l h_rt=0:30:00 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       -v MODEL=D2-K0-scene-mix_last,TAG=k0b score_k0_failures.qsub
+
+set -euo pipefail
+
+RAP="${RAP:-/gs/bs/tga-RLA/qdeng/RAP}"
+EVAL_DIR="${EVAL_DIR:-$RAP/eval}"
+: "${MODEL:?set MODEL}"
+: "${TAG:?set TAG}"
+SCEN_DIR="${SCEN_DIR:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp/t2_scenarios_navtest_t1sub}"
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+
+[ -f "$EVAL_DIR/k0_results/k0_probe_${TAG}_tail_tokens.csv" ] || { echo "缺少文件: $EVAL_DIR/k0_results/k0_probe_${TAG}_tail_tokens.csv" >&2; exit 1; }
+cd "$EVAL_DIR"
+echo "[score-k0f] host=$(hostname) job=${JOB_ID:-local} model=$MODEL tag=$TAG"
+exec "$PYTHON_BIN" "$EVAL_DIR/tools/score_k0_failures.py" --scenario-dir "$SCEN_DIR" --tag "$TAG" --model "$MODEL"
