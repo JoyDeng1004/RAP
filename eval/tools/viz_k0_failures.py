@@ -152,11 +152,11 @@ def to_ego(xy_world: np.ndarray, heading: float) -> np.ndarray:
     return xy_world @ np.array([[c, -s], [s, c]])  # R_ego^T applied to row vectors
 
 
-def draw_bev(ax, scenario: dict, cand: np.ndarray, gates: dict, i_real: int, cand_c1: np.ndarray, i_c1: int):
+def draw_scene(ax, scenario: dict, lim=((-12, 60), (-25, 25))):
+    """Map, boxes and ego in the ego frame (x forward -> up, y left -> left); returns plot(xy, **kw)."""
     h = scenario["ego_heading"]
-    lim = dict(x=(-12, 60), y=(-25, 25))
 
-    def plot(xy, **kw):  # ego x forward -> up, y left -> left
+    def plot(xy, **kw):
         ax.plot(-xy[:, 1], xy[:, 0], **kw)
 
     for feat in scenario["map_features"].values():
@@ -175,6 +175,16 @@ def draw_bev(ax, scenario: dict, cand: np.ndarray, gates: dict, i_real: int, can
         ax.fill(-xy[:, 1], xy[:, 0], color="tab:blue", alpha=0.35, lw=1.0, ec="tab:blue", zorder=2)
     ego = np.array([[4.0, 1.0], [4.0, -1.0], [-1.0, -1.0], [-1.0, 1.0], [4.0, 1.0]])
     plot(ego, color="k", lw=1.2, zorder=3)
+    ax.set_xlim(-lim[1][1], -lim[1][0])
+    ax.set_ylim(*lim[0])
+    ax.set_aspect("equal")
+    ax.set_xlabel("← left   lateral (m)   right →", fontsize=8)
+    ax.set_ylabel("forward (m)", fontsize=8)
+    return plot
+
+
+def draw_bev(ax, scenario: dict, cand: np.ndarray, gates: dict, i_real: int, cand_c1: np.ndarray, i_c1: int):
+    plot = draw_scene(ax, scenario)
     for j, tr_ in enumerate(cand):
         xy = np.vstack([[0, 0], tr_[:, :2]])
         col = "tab:red" if gates["no_collision"][j] <= ZERO else (
@@ -182,11 +192,6 @@ def draw_bev(ax, scenario: dict, cand: np.ndarray, gates: dict, i_real: int, can
         plot(xy, color=col, lw=0.5, alpha=0.6, zorder=4)
     plot(np.vstack([[0, 0], cand[i_real, :, :2]]), color="red", lw=2.4, zorder=6, label="real pick")
     plot(np.vstack([[0, 0], cand_c1[i_c1, :, :2]]), color="limegreen", lw=2.4, ls="--", zorder=6, label="c1 pick")
-    ax.set_xlim(-lim["y"][1], -lim["y"][0])
-    ax.set_ylim(*lim["x"])
-    ax.set_aspect("equal")
-    ax.set_xlabel("← left   lateral (m)   right →", fontsize=8)
-    ax.set_ylabel("forward (m)", fontsize=8)
     ax.legend(loc="lower right", fontsize=7)
     ax.set_title("BEV, real candidates: red collision / orange off-road", fontsize=8)
 

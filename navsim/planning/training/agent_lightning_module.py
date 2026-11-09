@@ -244,7 +244,7 @@ class AgentLightningModule(pl.LightningModule):
                 domain_loss = torch.stack(group_losses).mean()
 
                 loss_dict['domain_loss'] = domain_loss
-                loss_dict['loss'] += 0.001*domain_loss
+                loss_dict['loss'] += self.agent._config.domain_loss_weight * domain_loss
                 
                 bev_feature = prediction['bev_feature']
                 render_bev = bev_feature[:batch_size][real_valid_mask].detach()
@@ -255,11 +255,20 @@ class AgentLightningModule(pl.LightningModule):
                 ade_real = torch.mean(torch.norm(prediction['trajectory'][batch_size:,:,:2] - all_targets['trajectory'][batch_size:,:,:2], dim=-1))
                 loss_dict['ade_real'] = ade_real
                 loss_dict['loss_render'] = loss_render
+            else:
+                # Raster-only batches must issue the same synced logs as paired ones,
+                # or DDP ranks deadlock (possible once raster-only sources dominate, e.g. E4).
+                zero = torch.zeros((), device=loss_dict['loss'].device)
+                for g in range(2):
+                    self.log(f"{logging_prefix}/domain_loss_rig{g}", zero, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=1)
+                loss_dict['domain_loss'] = zero
+                loss_dict['ade_real'] = zero
+                loss_dict['loss_render'] = zero
                 
         for k, v in loss_dict.items():
             if v is not None:
                 # Keep validation metrics epoch-only for ModelCheckpoint.
-                self.log(f"{logging_prefix}/{k}", v, on_step=self.training, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=len(batch[0]) if k not in ['ade_real', 'loss_render'] else int(real_valid_mask.sum()))
+                self.log(f"{logging_prefix}/{k}", v, on_step=self.training, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=len(batch[0]) if k not in ['ade_real', 'loss_render'] else max(int(real_valid_mask.sum()), 1))
         
         if self.global_step % 10 == 0 and self.global_rank == 0 and False:
             visualize_idx = 0

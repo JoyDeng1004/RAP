@@ -11,6 +11,8 @@ from nuplan.common.maps.abstract_map import SemanticMapLayer
 class RAPConfig:
     distill_feature: bool = False
     distill_feature_weight: float = 0.002
+    # GRL domain-loss weight (official code: 0.001; RAP paper Table 8: 0.1). 0 turns global alignment off.
+    domain_loss_weight: float = 0.001
     b2d: bool = False
     cache_data: bool = False
     train_metric_cache_path: str = "./train_metric_cache"
