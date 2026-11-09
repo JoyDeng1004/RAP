@@ -167,6 +167,8 @@ def main(cfg: DictConfig) -> None:
             # False for sources without a metric cache (e.g. nuScenes): rap_loss then
             # skips their scorer losses and down-weights their trajectory loss.
             train_data.score_mask = cfg.get("train_score_mask", True)
+            # False drops the main source's real images (target-scene raster only, e.g. D2-K0-scene).
+            train_data.use_real = cfg.get("train_use_real", True)
             val_data = CacheOnlyDataset(
                 cache_path=val_cache_path,
                 feature_builders=agent.get_feature_builders(),
@@ -177,6 +179,12 @@ def main(cfg: DictConfig) -> None:
             val_data.score_mask = cfg.get("val_score_mask", True)
 
             train_parts = [("main", train_data)]
+            # Repeat a tiny main source so each epoch has about as many steps as p010 (e.g. D1-K1).
+            min_samples = cfg.get("train_min_samples", 0)
+            if min_samples and len(train_data) < min_samples:
+                repeats = -(-min_samples // len(train_data))
+                train_parts = [("main", ConcatDataset([train_data] * repeats))]
+                logger.info("Main source repeated %dx: %d -> %d samples", repeats, len(train_data), repeats * len(train_data))
             if cfg.get("cache_path_perturbed"):
                 train_data_perturbed = CacheOnlyDataset(
                     cache_path=cfg.cache_path_perturbed,
