@@ -11,6 +11,8 @@ scripts/*
 !scripts/audit/**
 !scripts/agent_tools/
 !scripts/agent_tools/**
+!scripts/analysis/
+!scripts/analysis/**
 scripts/**/__pycache__/
 data/
 dataset_aug/
