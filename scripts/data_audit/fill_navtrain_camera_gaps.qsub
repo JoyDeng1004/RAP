@@ -1,0 +1,14 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N navtrain-gap-fill
+#$ -l cpu_4=1
+#$ -l h_rt=08:00:00
+#$ -j y
+#$ -cwd
+
+set -euo pipefail
+
+REPO=/gs/bs/tga-RLA/qdeng/RAP
+cd "$REPO"
+PYTHON_BIN=${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}
+exec "$PYTHON_BIN" scripts/data_audit/fill_navtrain_camera_gaps.py "$@"

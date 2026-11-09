@@ -1,0 +1,33 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N nuplan-db-dl
+#$ -l cpu_4=1
+#$ -l h_rt=24:00:00
+#$ -j y
+#$ -cwd
+
+# nuPlan trainval DB 归档下载的 UGE 包装器。
+#
+# 13 个归档彼此独立，用 array job 并行最省墙钟时间；每个 task 只碰自己那个
+# 归档，暂存文件名互不相同，展开时各写各的 .done 标记，所以无需加锁。
+#
+#   qsub -g tga-RLA -t 1-10 scripts/data_audit/download_nuplan_trainval.qsub
+#
+# 只补某几个（例如先拿三个小城市试水，再决定要不要下 6 个 vegas）：
+#   qsub -g tga-RLA -t 1-3 scripts/data_audit/download_nuplan_trainval.qsub
+#
+# 想保留 zip（例如打算日后再做按成员抽取）：
+#   qsub -g tga-RLA -t 1-10 -v KEEP_ZIP=1 scripts/data_audit/download_nuplan_trainval.qsub
+#
+# 注意 h_rt=24:00:00：最大的归档 163.5 GB，同区 S3 通常远快于 24h，但若某个
+# task 超时，重投同一个 -t 序号即可 —— 脚本会跳过已完成的步骤继续。
+
+set -euo pipefail
+
+REPO=/gs/bs/tga-RLA/qdeng/RAP
+cd "$REPO"
+
+export NUPLAN_ROOT="${NUPLAN_ROOT:-/gs/bs/tga-RLA/qdeng/nuplan_dataset/nuplan-v1.1}"
+export KEEP_ZIP="${KEEP_ZIP:-0}"
+
+exec bash scripts/data_audit/download_nuplan_trainval.sh fetch "${SGE_TASK_ID:-1}"

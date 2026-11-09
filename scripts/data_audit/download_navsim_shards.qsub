@@ -1,0 +1,32 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N navsim-shard-dl
+#$ -l cpu_4=1
+#$ -l h_rt=24:00:00
+#$ -j y
+#$ -cwd
+
+# NAVSIM/OpenScene trainval 分片下载的 UGE 包装器。
+# 所有参数原样透传给 download_navsim_shards.py，例如：
+#   qsub -g tga-RLA scripts/data_audit/download_navsim_shards.qsub \
+#        download --logs-file /abs/path/missing_logs.txt --part 1/4
+#
+# 分卷并行：用 array job 把分片集合切成 n 份，各 task 各下各的，互不覆盖。
+#   qsub -g tga-RLA -t 1-4 scripts/data_audit/download_navsim_shards.qsub \
+#        download --logs-file /abs/path/missing_logs.txt --part '$SGE_TASK_ID/4'
+# （注意 --part 里要用单引号，让 $SGE_TASK_ID 在作业内展开。）
+
+set -euo pipefail
+
+REPO=/gs/bs/tga-RLA/qdeng/RAP
+cd "$REPO"
+PYTHON_BIN=${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}
+
+# --part 里可能带字面量 $SGE_TASK_ID；这里只做这一个变量的字符串替换，
+# 不用 eval，避免参数里的任何内容被当成命令执行。
+ARGS=()
+for arg in "$@"; do
+  ARGS+=("${arg//\$SGE_TASK_ID/${SGE_TASK_ID:-1}}")
+done
+
+exec "$PYTHON_BIN" scripts/data_audit/download_navsim_shards.py "${ARGS[@]}"
