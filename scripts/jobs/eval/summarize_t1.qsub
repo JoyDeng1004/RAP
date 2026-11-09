@@ -1,0 +1,20 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N sum_t1
+#$ -j y
+#$ -cwd
+
+# Exp-0 / T1: rebuild eval/t1_results/t1_summary_<TAG>.md from every t1_sub_<TAG>_* run.
+# Submitted by submit_t1_sweep.sh with -hold_jid; can also be run by hand:
+#
+#   qsub -g tga-RLA -l cpu_4=1 -l h_rt=0:15:00 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       -v TAG=official /gs/bs/tga-RLA/qdeng/RAP/scripts/jobs/eval/summarize_t1.qsub
+
+set -euo pipefail
+
+TAG="${TAG:-official}"
+RAP="${RAP:-/gs/bs/tga-RLA/qdeng/RAP}"
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+
+echo "[sum-t1] host=$(hostname) job=${JOB_ID:-local} tag=$TAG"
+exec "$PYTHON_BIN" "$RAP/eval/tools/summarize_t1.py" --tag "$TAG"

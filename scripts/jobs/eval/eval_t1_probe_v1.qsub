@@ -1,0 +1,52 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N t1probe
+#$ -j y
+#$ -cwd
+
+# Exp-0 / T1 step 8 probes (fixed candidates, backbone equivariance, feature translation) for one
+# rig preset, NAVSIM v1, RAP's own v1 navsim, no Ray. Submitted by submit_t1_probe.sh:
+#
+#   qsub -g tga-RLA -l gpu_1=1 -l h_rt=3:00:00 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       -v RAP_CKPT=<ckpt>,PRESET=<name>,CACHE_PATH=<cache>,EXPERIMENT=<name> eval_t1_probe_v1.qsub [workers]
+#
+# AGENT_CONFIG must be the plain RAPV2Agent yaml: the runner applies the rig itself.
+# PER_LOG=2 probes only the first 2 tokens of each log (smoke test).
+
+set -euo pipefail
+
+WORKERS="${1:-4}"
+RAP="${RAP:-/gs/bs/tga-RLA/qdeng/RAP}"
+EVAL_DIR="${EVAL_DIR:-$RAP/eval}"
+: "${RAP_CKPT:?set RAP_CKPT}"
+: "${PRESET:?set PRESET}"
+: "${EXPERIMENT:?set EXPERIMENT}"
+AGENT_CONFIG="${AGENT_CONFIG:-$EVAL_DIR/hydra/rap_v2_official_agent.yaml}"
+CACHE_PATH="${CACHE_PATH:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp/metric_cache_v1_navtest_t1sub}"
+
+export RAP_CKPT RAP_SELECTOR=scorer
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-$OPENSCENE_DATA_ROOT/maps}"
+export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/exp}"
+export HF_HUB_OFFLINE=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+# navsim must be RAP's v1 copy: the agent package only, never the v2 devkit.
+export PYTHONPATH="$EVAL_DIR/py"
+
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+OUTPUT_DIR="${OUTPUT_DIR:-$NAVSIM_EXP_ROOT/$EXPERIMENT/${JOB_ID:-local}}"
+
+for d in "$OPENSCENE_DATA_ROOT/navsim_logs/test" "$OPENSCENE_DATA_ROOT/sensor_blobs/test" "$CACHE_PATH/metadata"; do
+  [ -d "$d" ] || { echo "缺少目录: $d" >&2; exit 1; }
+done
+for f in "$RAP_CKPT" "$AGENT_CONFIG" "$EVAL_DIR/v1/run_t1_probe_v1.py" "$EVAL_DIR/v1/oracle64_v1.py" \
+         "$EVAL_DIR/py/rap_eval_agents/rig_probe.py" "$EVAL_DIR/py/rap_eval_agents/rig_transform.py"; do
+  [ -f "$f" ] || { echo "缺少文件: $f" >&2; exit 1; }
+done
+
+# Neutral cwd without a navsim/ package; RAP's navsim comes from its editable install.
+cd "$EVAL_DIR"
+echo "[t1-probe-v1] host=$(hostname) job=${JOB_ID:-local} workers=$WORKERS preset=$PRESET ckpt=$RAP_CKPT agent=$AGENT_CONFIG cache=$CACHE_PATH out=$OUTPUT_DIR per_log=${PER_LOG:-0}"
+exec "$PYTHON_BIN" "$EVAL_DIR/v1/run_t1_probe_v1.py" \
+  --rap-root "$RAP" --agent-config "$AGENT_CONFIG" --metric-cache "$CACHE_PATH" --preset "$PRESET" \
+  --output-dir "$OUTPUT_DIR" --workers "$WORKERS" --per-log "${PER_LOG:-0}"

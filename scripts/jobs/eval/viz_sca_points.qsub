@@ -1,0 +1,31 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N viz_sca
+#$ -j y
+#$ -cwd
+
+# Exp-0 / T1 step 8: F0 SCA sampling-point figures (eval/tools/viz_sca_points.py), one GPU, ~50 tokens.
+#
+#   qsub -g tga-RLA -l gpu_1=1 -l h_rt=0:45:00 -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ \
+#       [-v PRESETS="ppy_m7r pitch_up_m10"] /gs/bs/tga-RLA/qdeng/RAP/scripts/jobs/eval/viz_sca_points.qsub
+#
+# Figures land in $RAP/eval/t1_results/figs/sca_points/ (webp, synced back).
+
+set -euo pipefail
+
+RAP="${RAP:-/gs/bs/tga-RLA/qdeng/RAP}"
+EVAL_DIR="$RAP/eval"
+PRESETS="${PRESETS:-ppy_m7r pitch_up_m10}"
+export RAP_CKPT="${RAP_CKPT:-/gs/bs/tga-RLA/qdeng/rap_eval/ckpts/official/RAP_DINO_navsimv1.ckpt}" RAP_SELECTOR=scorer
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/gs/bs/tga-RLA/qdeng/navsim_workspace/dataset}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-$OPENSCENE_DATA_ROOT/maps}"
+export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
+export HF_HUB_OFFLINE=1 OMP_NUM_THREADS=4
+export PYTHONPATH="$EVAL_DIR/py"
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+
+cd "$EVAL_DIR"
+echo "[viz-sca] host=$(hostname) job=${JOB_ID:-local} presets=$PRESETS"
+# shellcheck disable=SC2086
+exec "$PYTHON_BIN" tools/viz_sca_points.py --rap-root "$RAP" --agent-config hydra/rap_v2_official_agent.yaml \
+  --presets $PRESETS
