@@ -1,0 +1,144 @@
+## Sources
+
+| model | kind | csv |
+|---|---|---|
+| E2a | v1_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_navtest_E2a_scorer/8819496/2026.09.29.16.38.16.csv |
+| E2a | v1_medoid | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_navtest_E2a_medoid/8819499/2026.09.29.16.54.18.csv |
+| E2a | v2_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v2_navtest_E2a_scorer/8819497/2026.09.29.16.55.46.csv |
+| E2a | navhard_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v2_navhard_two_stage_E2a_scorer/8819498/2026.09.29.16.35.06.csv |
+| E2a | oracle64 | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_oracle64_navtest_E2a/8819684/2026.09.29.18.25.33.csv |
+| E3 | v1_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_navtest_E3_scorer/8825478/2026.09.30.12.18.58.csv |
+| E3 | v1_medoid | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_navtest_E3_medoid/8825479/2026.09.30.12.18.58.csv |
+| E3 | v2_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v2_navtest_E3_scorer/8825480/2026.09.30.12.24.10.csv |
+| E3 | navhard_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v2_navhard_two_stage_E3_scorer/8825482/2026.09.30.12.02.43.csv |
+| E3 | oracle64 | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_oracle64_navtest_E3/8825483/2026.09.30.13.44.01.csv |
+| D1K1 | v1_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_navtest_D1-K1_e16_scorer/9095481/2026.10.22.10.30.13.csv |
+| D1K1 | v1_medoid | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_navtest_D1-K1_e16_medoid/9095482/2026.10.22.10.30.13.csv |
+| D1K1 | v2_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v2_navtest_D1-K1_e16_scorer/9095484/2026.10.22.10.33.36.csv |
+| D1K1 | navhard_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v2_navhard_two_stage_D1-K1_e16_scorer/9095486/2026.10.22.10.15.53.csv |
+| D1K1 | oracle64 | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_oracle64_navtest_D1-K1_e16/9095487/2026.10.22.11.51.57.csv |
+| D2K1mix | v1_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_navtest_D2-K1-mix_e13_scorer/9087030/2026.10.21.18.21.04.csv |
+| D2K1mix | v1_medoid | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_navtest_D2-K1-mix_e13_medoid/9087033/2026.10.21.18.17.25.csv |
+| D2K1mix | v2_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v2_navtest_D2-K1-mix_e13_scorer/9087035/2026.10.21.18.24.48.csv |
+| D2K1mix | navhard_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v2_navhard_two_stage_D2-K1-mix_e13_scorer/9087037/2026.10.21.18.05.10.csv |
+| D2K1mix | oracle64 | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_oracle64_navtest_D2-K1-mix_e13/9087038/2026.10.21.19.36.48.csv |
+| D2K0e6 | v1_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_navtest_D2-K0-scene-mix_e6_scorer/9087031/2026.10.21.18.18.18.csv |
+| D2K0e6 | v1_medoid | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_navtest_D2-K0-scene-mix_e6_medoid/9087032/2026.10.21.18.17.30.csv |
+| D2K0e6 | v2_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v2_navtest_D2-K0-scene-mix_e6_scorer/9087034/2026.10.21.18.26.53.csv |
+| D2K0e6 | navhard_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v2_navhard_two_stage_D2-K0-scene-mix_e6_scorer/9087036/2026.10.21.18.05.45.csv |
+| D2K0e6 | oracle64 | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_oracle64_navtest_D2-K0-scene-mix_e6/9087039/2026.10.21.19.44.38.csv |
+| official | v1_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_navtest_official_v1ckpt_scorer/8812832/2026.09.28.21.12.00.csv |
+| official | v2_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v2_navtest_official_v2ckpt_scorer/8812201/2026.09.28.18.53.41.csv |
+| official | navhard_scorer | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v2_navhard_official_v2ckpt_scorer/8811359/2026.09.28.17.06.00.csv |
+| official | oracle64 | /gs/bs/tga-RLA/qdeng/navsim_workspace/exp/eval_v1_oracle64_navtest_official/8819685/2026.09.29.18.25.33.csv |
+
+## 1. Headline (x100)
+
+| model | v1 scorer | v1 medoid | v1 Δ(s−m) | v2 navtest scorer | v2 navtest medoid | v2 Δ(s−m) | navhard scorer combined (s1 / s2) | navhard medoid |
+|---|---|---|---|---|---|---|---|---|
+| E2a | 82.83 | 74.08 | 8.76 | 76.87 | — | — | 36.12 (67.19 / 53.70) | — |
+| E3 | 89.40 | 80.82 | 8.58 | 83.28 | — | — | 32.11 (66.95 / 47.21) | — |
+| D1K1 | 80.36 | 69.97 | 10.38 | 73.70 | — | — | 28.05 (58.15 / 46.90) | — |
+| D2K1mix | 85.73 | 78.13 | 7.61 | 80.68 | — | — | 30.07 (65.07 / 45.75) | — |
+| D2K0e6 | 82.30 | 66.99 | 15.31 | 77.20 | — | — | 28.32 (59.85 / 46.39) | — |
+| official | 93.80 | — | — | 86.67 | — | — | 36.16 (74.12 / 48.66) | — |
+
+## 2. v1 navtest sub-metrics, scorer (x100)
+
+| model | NC | DAC | EP | TTC | C | DDC | PDMS |
+|---|---|---|---|---|---|---|---|
+| E2a | 98.11 | 96.88 | 72.66 | 92.01 | 97.17 | 96.65 | 82.83 |
+| E3 | 98.56 | 97.43 | 83.92 | 94.61 | 99.98 | 95.97 | 89.40 |
+| D1K1 | 96.52 | 94.76 | 72.80 | 89.26 | 97.11 | 95.30 | 80.36 |
+| D2K1mix | 96.98 | 95.84 | 81.31 | 91.12 | 99.96 | 96.59 | 85.73 |
+| D2K0e6 | 96.68 | 94.82 | 76.47 | 88.97 | 99.98 | 96.04 | 82.30 |
+| official | 99.10 | 98.86 | 90.35 | 96.67 | 99.98 | 97.43 | 93.80 |
+
+## 3. v2 navtest sub-metrics, scorer (x100)
+
+| model | NC | DAC | DDC | TLC | EP | TTC | LK | HC | EC | EPDMS |
+|---|---|---|---|---|---|---|---|---|---|---|
+| E2a | 98.11 | 96.88 | 99.25 | 99.55 | 76.92 | 95.65 | 93.86 | 89.49 | 54.76 | 76.87 |
+| E3 | 98.56 | 97.43 | 98.28 | 99.56 | 87.88 | 97.79 | 94.39 | 98.08 | 72.36 | 83.28 |
+| D1K1 | 96.51 | 94.76 | 98.70 | 99.24 | 80.04 | 94.42 | 92.47 | 87.97 | 49.09 | 73.70 |
+| D2K1mix | 96.97 | 95.84 | 98.66 | 99.36 | 87.91 | 96.03 | 94.08 | 98.19 | 72.06 | 80.68 |
+| D2K0e6 | 96.68 | 94.82 | 98.74 | 99.58 | 83.93 | 95.46 | 94.33 | 98.03 | 54.97 | 77.20 |
+| official | 98.96 | 98.46 | 99.02 | 99.42 | 91.40 | 98.47 | 95.95 | 97.55 | 78.60 | 86.67 |
+
+## 4. navhard two-stage sub-metrics, scorer (x100)
+
+| model | stage | NC | DAC | DDC | TLC | EP | TTC | LK | HC | EC | score |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| E2a | s1 | 96.56 | 92.00 | 99.00 | 99.78 | 70.27 | 97.11 | 94.22 | 84.44 | 40.00 | 67.19 |
+| E2a | s2 | 88.80 | 87.04 | 91.10 | 98.49 | 69.41 | 87.02 | 52.56 | 90.27 | 55.35 | 53.70 |
+| E3 | s1 | 96.44 | 90.22 | 96.22 | 99.78 | 79.19 | 95.78 | 91.56 | 97.33 | 57.33 | 66.95 |
+| E3 | s2 | 84.67 | 83.38 | 84.78 | 98.23 | 80.24 | 81.70 | 49.53 | 97.69 | 55.17 | 47.21 |
+| D1K1 | s1 | 94.56 | 84.44 | 96.11 | 99.56 | 74.19 | 93.56 | 88.22 | 86.00 | 33.78 | 58.15 |
+| D1K1 | s2 | 85.77 | 77.73 | 89.21 | 98.21 | 73.16 | 83.72 | 51.33 | 91.95 | 53.33 | 46.90 |
+| D2K1mix | s1 | 95.22 | 87.11 | 96.67 | 99.56 | 81.73 | 94.00 | 93.11 | 97.56 | 60.00 | 65.07 |
+| D2K1mix | s2 | 86.13 | 77.77 | 84.88 | 97.47 | 82.81 | 83.86 | 47.08 | 96.96 | 55.20 | 45.75 |
+| D2K0e6 | s1 | 94.33 | 84.22 | 96.00 | 99.33 | 76.70 | 93.33 | 92.22 | 97.33 | 40.89 | 59.85 |
+| D2K0e6 | s2 | 82.87 | 79.47 | 89.35 | 98.26 | 74.76 | 81.54 | 50.41 | 97.23 | 49.18 | 46.39 |
+| official | s1 | 97.11 | 94.44 | 98.56 | 99.78 | 83.97 | 96.44 | 94.67 | 96.44 | 64.00 | 74.12 |
+| official | s2 | 83.35 | 83.06 | 87.24 | 98.00 | 86.95 | 80.17 | 52.09 | 95.33 | 52.90 | 48.66 |
+
+## 5. v1 oracle@64 (x100; capture = (scorer−mean64)/(oracle64−mean64))
+
+| model | oracle64 | mean64 | scorer | medoid | capture | regret | pick=0 | pick=oracle | pick pctile | best of scorer top-1/4/8/16 | spearman(logit,score) | safe cand. | minADE64 / ADE scorer / ADE oracle (m) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| E2a | 94.30 | 67.16 | 82.83 | 74.08 | 0.58 | 11.46 | 4.82 | 25.19 | 56.99 | 82.83 / 87.71 / 89.74 / 91.31 | 0.345 | 79.59 | 0.912 / 2.495 / 2.071 |
+| E3 | 98.41 | 71.46 | 89.40 | 80.82 | 0.67 | 9.01 | 3.86 | 36.09 | 67.37 | 89.40 / 92.97 / 94.35 / 95.80 | 0.460 | 80.41 | 0.204 / 1.217 / 1.481 |
+| D1K1 | 93.99 | 63.83 | 80.36 | 69.97 | 0.55 | 13.63 | 8.32 | 26.49 | 60.60 | 80.36 / 85.63 / 87.74 / 89.70 | 0.378 | 76.04 | 0.852 / 2.104 / 1.991 |
+| D2K1mix | 98.23 | 70.20 | 85.73 | 78.13 | 0.55 | 12.50 | 6.95 | 31.16 | 65.44 | 85.73 / 90.15 / 92.10 / 94.24 | 0.413 | 79.62 | 0.249 / 1.309 / 1.642 |
+| D2K0e6 | 98.17 | 61.11 | 82.30 | 66.99 | 0.57 | 15.87 | 8.05 | 26.32 | 64.86 | 82.30 / 88.24 / 90.87 / 93.48 | 0.468 | 71.73 | 0.332 / 1.448 / 1.826 |
+| official | 98.31 | 83.06 | 93.80 | 88.05 | 0.70 | 4.51 | 1.98 | 58.04 | 74.71 | 93.80 / 95.58 / 96.19 / 96.78 | 0.551 | 90.68 | 0.139 / 1.153 / 1.225 |
+
+consistency: E2a: argmax(logit64)==idx_scorer 1.0000, npz vs csv max|Δ| 1.11e-16, constant-score tokens 0.001, n=12146; E3: argmax(logit64)==idx_scorer 1.0000, npz vs csv max|Δ| 1.11e-16, constant-score tokens 0.003, n=12146; D1K1: argmax(logit64)==idx_scorer 1.0000, npz vs csv max|Δ| 1.11e-16, constant-score tokens 0.005, n=12146; D2K1mix: argmax(logit64)==idx_scorer 1.0000, npz vs csv max|Δ| 1.11e-16, constant-score tokens 0.005, n=12146; D2K0e6: argmax(logit64)==idx_scorer 1.0000, npz vs csv max|Δ| 1.11e-16, constant-score tokens 0.003, n=12146; official: argmax(logit64)==idx_scorer 1.0000, npz vs csv max|Δ| 1.11e-16, constant-score tokens 0.020, n=12146
+
+## 6. v1 gap to official: scorer part = Δcapture × (oracle64−mean64) of either model; candidate part = rest (x100)
+
+| model | PDMS gap | scorer part | candidate part | oracle64 gap | mean64 gap |
+|---|---|---|---|---|---|
+| E2a | 10.97 | 1.93 … 3.44 | 7.53 … 9.04 | 4.01 | 15.91 |
+| E3 | 4.41 | 0.59 … 1.05 | 3.36 … 3.82 | -0.10 | 11.60 |
+| D1K1 | 13.45 | 2.39 … 4.72 | 8.72 … 11.06 | 4.32 | 19.23 |
+| D2K1mix | 8.07 | 2.29 … 4.22 | 3.86 … 5.78 | 0.08 | 12.86 |
+| D2K0e6 | 11.51 | 2.03 … 4.92 | 6.59 … 9.48 | 0.14 | 21.95 |
+
+token→log map: 12146 tokens, 136 logs (from /gs/bs/tga-RLA/qdeng/RAP/metric_cache_v1_navtest)
+
+## 7. paired D1K1 − E2a (per-token mean; 95% CI by log-clustered bootstrap; minADE in m, others x100)
+
+| metric | n | D1K1 | E2a | Δ | 95% CI | Δ>0 % | tie % | Δ<0 % |
+|---|---|---|---|---|---|---|---|---|
+| v1_scorer.score | 12146 | 80.36 | 82.83 | -2.47 | [-3.22, -1.78] | 50.4 | 24.0 | 25.6 |
+| v1_medoid.score | 12146 | 69.97 | 74.08 | -4.10 | [-5.12, -3.19] | 43.1 | 30.3 | 26.7 |
+| v2_scorer.score | 12146 | 73.70 | 76.87 | -3.17 | [-3.86, -2.45] | 44.3 | 22.5 | 33.1 |
+| oracle64.oracle64 | 12146 | 93.99 | 94.30 | -0.30 | [-0.51, -0.10] | 39.5 | 44.0 | 16.5 |
+| oracle64.mean64 | 12146 | 63.83 | 67.16 | -3.32 | [-3.92, -2.73] | 41.7 | 0.3 | 58.0 |
+| oracle64.score_scorer | 12146 | 80.36 | 82.83 | -2.47 | [-3.22, -1.78] | 50.4 | 24.0 | 25.6 |
+| oracle64.minADE64 | 12146 | 0.852 | 0.912 | -0.060 | [-0.080, -0.042] | 46.2 | 0.0 | 53.8 |
+
+## 7. paired D2K1mix − D1K1 (per-token mean; 95% CI by log-clustered bootstrap; minADE in m, others x100)
+
+| metric | n | D2K1mix | D1K1 | Δ | 95% CI | Δ>0 % | tie % | Δ<0 % |
+|---|---|---|---|---|---|---|---|---|
+| v1_scorer.score | 12146 | 85.73 | 80.36 | 5.37 | [4.32, 6.36] | 58.0 | 23.7 | 18.3 |
+| v1_medoid.score | 12146 | 78.13 | 69.97 | 8.15 | [6.70, 9.67] | 45.5 | 22.4 | 32.1 |
+| v2_scorer.score | 12146 | 80.68 | 73.70 | 6.98 | [5.92, 8.04] | 58.6 | 22.3 | 19.1 |
+| oracle64.oracle64 | 12146 | 98.23 | 93.99 | 4.24 | [3.74, 4.75] | 48.2 | 43.8 | 8.0 |
+| oracle64.mean64 | 12146 | 70.20 | 63.83 | 6.37 | [5.25, 7.48] | 60.3 | 0.2 | 39.6 |
+| oracle64.score_scorer | 12146 | 85.73 | 80.36 | 5.37 | [4.32, 6.36] | 58.0 | 23.7 | 18.3 |
+| oracle64.minADE64 | 12146 | 0.249 | 0.852 | -0.603 | [-0.727, -0.494] | 27.6 | 0.0 | 72.4 |
+
+## 7. paired D2K0e6 − D1K1 (per-token mean; 95% CI by log-clustered bootstrap; minADE in m, others x100)
+
+| metric | n | D2K0e6 | D1K1 | Δ | 95% CI | Δ>0 % | tie % | Δ<0 % |
+|---|---|---|---|---|---|---|---|---|
+| v1_scorer.score | 12146 | 82.30 | 80.36 | 1.94 | [0.95, 2.84] | 48.6 | 23.2 | 28.2 |
+| v1_medoid.score | 12146 | 66.99 | 69.97 | -2.99 | [-4.96, -0.83] | 37.6 | 23.7 | 38.7 |
+| v2_scorer.score | 12146 | 77.20 | 73.70 | 3.50 | [2.57, 4.33] | 50.2 | 21.1 | 28.7 |
+| oracle64.oracle64 | 12146 | 98.17 | 93.99 | 4.18 | [3.71, 4.62] | 46.7 | 43.1 | 10.2 |
+| oracle64.mean64 | 12146 | 61.11 | 63.83 | -2.72 | [-4.16, -1.23] | 40.7 | 0.1 | 59.2 |
+| oracle64.score_scorer | 12146 | 82.30 | 80.36 | 1.94 | [0.95, 2.84] | 48.6 | 23.2 | 28.2 |
+| oracle64.minADE64 | 12146 | 0.332 | 0.852 | -0.520 | [-0.640, -0.417] | 42.2 | 0.0 | 57.8 |
