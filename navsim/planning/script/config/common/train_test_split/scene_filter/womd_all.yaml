@@ -1,0 +1,16 @@
+# All WOMD scenarios produced by process_data/create_womd_metadata.py.
+# log_names is null: filter_scenes(enable_filter=True) walks every pkl in the
+# split directory. Only rendered anchors carry is_valid=True, which is what
+# selects samples; roadblock_ids is a lane-sequence surrogate, so has_route is
+# off like the nuScenes caching runs.
+_target_: navsim.common.dataclasses.SceneFilter
+_convert_: 'all'
+
+num_history_frames: 4
+num_future_frames: 10
+frame_interval: 1
+has_route: false
+
+max_scenes: null
+log_names: null
+tokens: null

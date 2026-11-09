@@ -1,0 +1,48 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N rap-raster-womd
+#$ -l cpu_16=1
+#$ -l h_rt=12:00:00
+#$ -j y
+#$ -cwd
+
+# UGE array-job wrapper for WOMD metadata + rasterization (create_womd_metadata.py).
+# Shards are tfrecord files (file i goes to shard i % NUM_SHARDS + 1), so the
+# array range must be 1-NUM_SHARDS. Finished files are recorded under
+# $DS_ROOT/_progress/, so resubmitting the same array resumes.
+#
+# Pilot (one task, first 2 files, metadata only, prints anchors per scenario):
+#   qsub -g tga-RLA -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ -l h_rt=1:00:00 \
+#       -v WOMD_SPLIT=training_20s,LIMIT_FILES=2,EXTRA=--no-render process_data/rasterize_womd.qsub
+# Full run:
+#   qsub -g tga-RLA -o /gs/bs/tga-RLA/qdeng/RAP/qsub_outputs/ -t 1-10 \
+#       -v WOMD_SPLIT=training_20s,NUM_SHARDS=10 process_data/rasterize_womd.qsub
+# training_20s (1000 files): ~335k anchors, ~120 GB jpg (F0/L0/R0; no B0, as official) + ~18 GB pkl.
+
+set -euo pipefail
+
+REPO="${REPO:-/gs/bs/tga-RLA/qdeng/RAP}"
+cd "$REPO"
+
+WOMD_ROOT="${WOMD_ROOT:-/gs/bs/tga-RLA/qdeng/womd_dataset/v_1_3_1}"
+WOMD_SPLIT="${WOMD_SPLIT:-training_20s}"
+# Kept outside the repo: mutagen ignores jpg/pkl but would still mirror the
+# ~350k per-log/per-camera directories and progress jsonl to the laptop.
+DS_ROOT="${DS_ROOT:-/gs/bs/tga-RLA/qdeng/womd_dataset/rap_raster}"
+NUM_SHARDS="${NUM_SHARDS:-1}"
+THREADS="${THREADS:-16}"
+PYTHON_BIN="${PYTHON_BIN:-/gs/bs/tga-RLA/qdeng/anaconda3/envs/rap/bin/python}"
+
+# UGE sets SGE_TASK_ID to the literal string "undefined" outside array jobs.
+TASK_ID="${SGE_TASK_ID:-1}"
+case "$TASK_ID" in ''|*[!0-9]*) TASK_ID=1 ;; esac
+
+ARGS=(run --womd-root "$WOMD_ROOT" --womd-split "$WOMD_SPLIT" --ds-root "$DS_ROOT"
+      --shard "$TASK_ID" --num-shards "$NUM_SHARDS" --thread-num "$THREADS")
+[ -n "${LIMIT_FILES:-}" ] && ARGS+=(--limit-files "$LIMIT_FILES")
+# shellcheck disable=SC2206
+[ -n "${EXTRA:-}" ] && ARGS+=($EXTRA)
+
+echo "[womd] $(date +'%m-%d %H:%M:%S') task $TASK_ID/$NUM_SHARDS: ${ARGS[*]}"
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+exec "$PYTHON_BIN" process_data/create_womd_metadata.py "${ARGS[@]}"
